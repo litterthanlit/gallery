@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { works } from "@/data/works";
 import { Lightbox } from "@/components/Lightbox";
@@ -10,13 +11,21 @@ export function Gallery() {
 
   return (
     <>
-      <header className="flex items-baseline justify-between gap-6 px-5 pt-7 sm:px-8 sm:pt-9 lg:px-12">
+      <header className="flex items-center justify-between gap-6 px-5 pt-7 sm:px-8 sm:pt-9 lg:px-12">
         <a
           href="https://www.litt.design"
-          className="brand-mark animate-fade-up text-ink no-underline"
+          className="animate-fade-up inline-flex no-underline"
           style={{ animationDelay: "0ms" }}
+          aria-label="litt.design home"
         >
-          litt.
+          <Image
+            src="/logo.png"
+            alt="litt."
+            width={723}
+            height={814}
+            className="h-11 w-auto object-contain sm:h-12"
+            priority
+          />
         </a>
         <p
           className="animate-fade-up text-sm text-muted tracking-wide"
