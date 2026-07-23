@@ -1,5 +1,5 @@
-import { Gallery } from "@/components/Gallery";
+import { CanvasGallery } from "@/components/CanvasGallery";
 
 export default function Home() {
-  return <Gallery />;
+  return <CanvasGallery />;
 }
