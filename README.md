@@ -13,11 +13,11 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## How to explore
 
-- **Drag** to pan
-- **Scroll / pinch** to zoom
+- **Drag** to pan the field
+- **Scroll / pinch** to zoom — zoom toward a piece and it **magnetically snaps** into focus
 - **Click** a piece to focus
-- **← →** or horizontal scroll (while focused) for next / previous
-- **Esc**, click empty space, or double-click background to fit all
+- **Swipe** left / right / up / down (or arrow keys) to move to the nearest neighbor
+- **Esc**, click empty space, zoom out, or double-click background to fit all
 
 ## Add a work
 

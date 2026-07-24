@@ -23,8 +23,12 @@ import {
 } from "@/lib/camera";
 import {
   boundsOf,
+  directionFromDelta,
+  findMagneticWork,
+  findNeighbor,
   layoutWorks,
   rectOf,
+  type NavDirection,
   type PlacedWork,
 } from "@/lib/canvasLayout";
 
@@ -32,6 +36,8 @@ type Mode = "overview" | "focused";
 
 const FOCUS_PADDING = 48;
 const OVERVIEW_PADDING = 80;
+const MAGNET_SNAP_RATIO = 0.62;
+const SWIPE_MIN_DISTANCE = 56;
 
 export function CanvasGallery() {
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -53,12 +59,15 @@ export function CanvasGallery() {
     pointerId: number;
     lastX: number;
     lastY: number;
+    startX: number;
+    startY: number;
     moved: boolean;
   } | null>(null);
   const pinchRef = useRef<{ distance: number; scale: number } | null>(null);
   const didInitFit = useRef(false);
   const skipClickRef = useRef(false);
   const wheelNavAt = useRef(0);
+  const magnetLockRef = useRef(false);
 
   useEffect(() => {
     cameraRef.current = camera;
@@ -120,6 +129,7 @@ export function CanvasGallery() {
     const { width, height } = viewport;
     if (width < 10 || height < 10) return;
     const target = fitRect(worldBounds, width, height, OVERVIEW_PADDING);
+    magnetLockRef.current = false;
     setMode("overview");
     setFocusedId(null);
     animateTo(target);
@@ -154,6 +164,21 @@ export function CanvasGallery() {
     [focusWork, placed],
   );
 
+  const focusInDirection = useCallback(
+    (direction: NavDirection) => {
+      const current = focusedIdRef.current;
+      if (!current) return;
+      const neighbor = findNeighbor(placed, current, direction);
+      if (neighbor) {
+        focusWork(neighbor.id);
+        return;
+      }
+      // No spatial neighbor — fall back to catalog order.
+      focusRelative(direction === "left" || direction === "up" ? -1 : 1);
+    },
+    [focusRelative, focusWork, placed],
+  );
+
   const maybeExitFocusFromZoom = useCallback(
     (nextScale: number) => {
       if (modeRef.current !== "focused") return;
@@ -163,11 +188,38 @@ export function CanvasGallery() {
       const { width, height } = viewport;
       const focusedFit = fitRect(rectOf(work), width, height, FOCUS_PADDING);
       if (nextScale < focusedFit.scale * 0.55) {
+        magnetLockRef.current = false;
         setMode("overview");
         setFocusedId(null);
       }
     },
     [placed, viewport],
+  );
+
+  const maybeMagneticSnap = useCallback(
+    (next: Camera, screenX: number, screenY: number, zoomingIn: boolean) => {
+      if (!zoomingIn) return;
+      if (modeRef.current === "focused") return;
+      if (magnetLockRef.current) return;
+
+      const worldX = (screenX - next.x) / next.scale;
+      const worldY = (screenY - next.y) / next.scale;
+      const { width, height } = viewport;
+
+      const target = findMagneticWork(
+        placed,
+        worldX,
+        worldY,
+        next.scale,
+        (work) => fitRect(rectOf(work), width, height, FOCUS_PADDING).scale,
+        MAGNET_SNAP_RATIO,
+      );
+
+      if (!target) return;
+      magnetLockRef.current = true;
+      focusWork(target.id);
+    },
+    [focusWork, placed, viewport],
   );
 
   useEffect(() => {
@@ -199,13 +251,18 @@ export function CanvasGallery() {
       return;
     }
     if (modeRef.current !== "focused") return;
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+    if (event.key === "ArrowRight") {
       event.preventDefault();
-      focusRelative(1);
-    }
-    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      focusInDirection("right");
+    } else if (event.key === "ArrowLeft") {
       event.preventDefault();
-      focusRelative(-1);
+      focusInDirection("left");
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusInDirection("down");
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusInDirection("up");
     }
   });
 
@@ -232,16 +289,30 @@ export function CanvasGallery() {
       if (modeRef.current === "focused") {
         const absX = Math.abs(event.deltaX);
         const absY = Math.abs(event.deltaY);
-        if (absX > absY && absX > 12) {
+        // Trackpad swipe → spatial neighbor; allow zoom-out with vertical scroll.
+        const isSwipe =
+          Math.max(absX, absY) > 12 &&
+          (absX > absY * 1.1 || (absY > absX * 1.1 && absY > 28));
+
+        if (isSwipe && absX >= absY) {
           const now = performance.now();
           if (now - wheelNavAt.current < 420) return;
           wheelNavAt.current = now;
-          if (event.deltaX > 0) focusRelative(1);
-          else focusRelative(-1);
+          focusInDirection(event.deltaX > 0 ? "right" : "left");
+          return;
+        }
+
+        if (isSwipe && absY > absX && Math.abs(event.deltaY) > 40) {
+          // Large vertical flick navigates; smaller vertical still zooms.
+          const now = performance.now();
+          if (now - wheelNavAt.current < 420) return;
+          wheelNavAt.current = now;
+          focusInDirection(event.deltaY > 0 ? "down" : "up");
           return;
         }
       }
 
+      const prevScale = cameraRef.current.scale;
       const factor = Math.exp(-event.deltaY * 0.0015);
       const next = zoomAt(
         cameraRef.current,
@@ -251,6 +322,7 @@ export function CanvasGallery() {
       );
       applyCamera(next);
       maybeExitFocusFromZoom(next.scale);
+      maybeMagneticSnap(next, sx, sy, next.scale > prevScale);
       setHintVisible(false);
     };
 
@@ -258,8 +330,9 @@ export function CanvasGallery() {
     return () => el.removeEventListener("wheel", handleWheel);
   }, [
     applyCamera,
-    focusRelative,
+    focusInDirection,
     maybeExitFocusFromZoom,
+    maybeMagneticSnap,
     stopTween,
   ]);
 
@@ -270,6 +343,8 @@ export function CanvasGallery() {
       pointerId: event.pointerId,
       lastX: event.clientX,
       lastY: event.clientY,
+      startX: event.clientX,
+      startY: event.clientY,
       moved: false,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -287,7 +362,12 @@ export function CanvasGallery() {
       setHintVisible(false);
     }
     if (drag.moved) {
-      applyCamera(panBy(cameraRef.current, dx, dy));
+      if (modeRef.current === "focused") {
+        // Soft rubber-band preview while swiping between pieces.
+        applyCamera(panBy(cameraRef.current, dx * 0.35, dy * 0.35));
+      } else {
+        applyCamera(panBy(cameraRef.current, dx, dy));
+      }
     }
     drag.lastX = event.clientX;
     drag.lastY = event.clientY;
@@ -302,6 +382,23 @@ export function CanvasGallery() {
       event.currentTarget.releasePointerCapture(event.pointerId);
     } catch {
       // ignore
+    }
+
+    if (modeRef.current === "focused" && drag.moved) {
+      const totalDx = event.clientX - drag.startX;
+      const totalDy = event.clientY - drag.startY;
+      const direction = directionFromDelta(
+        totalDx,
+        totalDy,
+        SWIPE_MIN_DISTANCE,
+      );
+      if (direction) {
+        focusInDirection(direction);
+        return;
+      }
+      // Snap back to the focused piece if the swipe was too short.
+      const id = focusedIdRef.current;
+      if (id) focusWork(id);
     }
   };
 
@@ -351,11 +448,13 @@ export function CanvasGallery() {
       const rect = el.getBoundingClientRect();
       const midX = (a.clientX + b.clientX) / 2 - rect.left;
       const midY = (a.clientY + b.clientY) / 2 - rect.top;
+      const prevScale = cameraRef.current.scale;
       const nextScale =
         pinchRef.current.scale * (distance / (pinchRef.current.distance || 1));
       const next = zoomAt(cameraRef.current, midX, midY, nextScale);
       applyCamera(next);
       maybeExitFocusFromZoom(next.scale);
+      maybeMagneticSnap(next, midX, midY, next.scale > prevScale);
       setHintVisible(false);
     }
   };
@@ -416,7 +515,7 @@ export function CanvasGallery() {
 
       {hintVisible ? (
         <p className="canvas-hint">
-          Drag to explore · scroll to zoom · click a piece
+          Drag to explore · zoom toward a piece to snap · swipe between works
         </p>
       ) : null}
 
@@ -444,7 +543,7 @@ export function CanvasGallery() {
             className="canvas-nav-btn"
             onClick={(event) => {
               event.stopPropagation();
-              focusRelative(-1);
+              focusInDirection("left");
             }}
             aria-label="Previous work"
           >
@@ -455,7 +554,7 @@ export function CanvasGallery() {
             className="canvas-nav-btn"
             onClick={(event) => {
               event.stopPropagation();
-              focusRelative(1);
+              focusInDirection("right");
             }}
             aria-label="Next work"
           >
