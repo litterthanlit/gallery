@@ -107,7 +107,8 @@ body::before {
   perspective-origin: 50% 45%;
 }
 
-.canvas-viewport.is-panning {
+.canvas-viewport.is-panning,
+.canvas-viewport.is-dragging-piece {
   cursor: grabbing;
 }
 
@@ -123,22 +124,22 @@ body::before {
 .canvas-work {
   --tilt-x: 0deg;
   --tilt-y: 0deg;
+  --spin: 0deg;
   position: absolute;
   display: block;
   padding: 0;
   margin: 0;
   border: 0;
   background: transparent;
-  cursor: zoom-in;
+  cursor: grab;
   line-height: 0;
   appearance: none;
   -webkit-appearance: none;
   transform-style: preserve-3d;
-  transform: rotateX(var(--tilt-x)) rotateY(var(--tilt-y)) translateZ(0);
-  transition:
-    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.35s ease,
-    opacity 0.35s ease;
+  transform: rotateX(var(--tilt-x)) rotateY(var(--tilt-y)) rotateZ(var(--spin))
+    translateZ(0);
+  transition: filter 0.35s ease, opacity 0.35s ease;
+  will-change: left, top, transform;
 }
 
 .canvas-work:focus-visible {
@@ -146,9 +147,22 @@ body::before {
   outline-offset: 6px;
 }
 
+.canvas-work.is-dragging {
+  z-index: 5;
+  cursor: grabbing;
+  transform: rotateX(var(--tilt-x)) rotateY(var(--tilt-y)) rotateZ(var(--spin))
+    translateZ(22px) scale(1.03);
+}
+
 .canvas-work.is-focused {
   z-index: 2;
-  transform: rotateX(0deg) rotateY(0deg) translateZ(28px) scale(1.015);
+  cursor: zoom-in;
+  transform: rotateX(0deg) rotateY(0deg) rotateZ(var(--spin)) translateZ(28px)
+    scale(1.015);
+}
+
+.canvas-work.is-focused.is-dragging {
+  z-index: 6;
 }
 
 .canvas-work-plane {

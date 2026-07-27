@@ -13,7 +13,8 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## How to explore
 
-- **Drag** to pan the field
+- **Drag a piece** to move and toss it — inertia, spin, and collisions
+- **Drag empty space** to pan the field
 - **Scroll / pinch** to zoom — zoom toward a piece and it **magnetically snaps** into focus
 - **Click** a piece to focus
 - **Swipe** left / right / up / down (or arrow keys) to move to the nearest neighbor

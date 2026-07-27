@@ -31,6 +31,15 @@ import {
   type NavDirection,
   type PlacedWork,
 } from "@/lib/canvasLayout";
+import {
+  applyDrag,
+  boundsFromWorld,
+  createWorld,
+  isWorldAwake,
+  releaseBody,
+  stepWorld,
+  type PhysicsWorld,
+} from "@/lib/physics";
 
 type Mode = "overview" | "focused";
 
@@ -39,28 +48,56 @@ const OVERVIEW_PADDING = 80;
 const MAGNET_SNAP_RATIO = 0.62;
 const SWIPE_MIN_DISTANCE = 56;
 
+type Pose = { x: number; y: number; angle: number };
+
 export function CanvasGallery() {
   const viewportRef = useRef<HTMLDivElement>(null);
   const placed = useMemo(() => layoutWorks(works), []);
-  const worldBounds = useMemo(() => boundsOf(placed), [placed]);
+  const initialBounds = useMemo(() => boundsOf(placed), [placed]);
 
+  const worldRef = useRef<PhysicsWorld | null>(null);
+  if (worldRef.current === null) {
+    worldRef.current = createWorld(placed);
+  }
+
+  const [poses, setPoses] = useState<Record<string, Pose>>(() => {
+    const initial: Record<string, Pose> = {};
+    for (const work of placed) {
+      initial[work.id] = { x: work.x, y: work.y, angle: 0 };
+    }
+    return initial;
+  });
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, scale: 1 });
   const [mode, setMode] = useState<Mode>("overview");
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [hintVisible, setHintVisible] = useState(true);
   const [isPanning, setIsPanning] = useState(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const [viewport, setViewport] = useState({ width: 1200, height: 800 });
 
   const cameraRef = useRef(camera);
   const modeRef = useRef(mode);
   const focusedIdRef = useRef(focusedId);
   const tweenRef = useRef<number | null>(null);
+  const physicsRafRef = useRef<number | null>(null);
+  const lastPhysicsTimeRef = useRef<number | null>(null);
   const dragRef = useRef<{
     pointerId: number;
     lastX: number;
     lastY: number;
     startX: number;
     startY: number;
+    moved: boolean;
+  } | null>(null);
+  const pieceDragRef = useRef<{
+    id: string;
+    pointerId: number;
+    grabOffsetX: number;
+    grabOffsetY: number;
+    lastWorldX: number;
+    lastWorldY: number;
+    lastT: number;
+    samples: Array<{ t: number; x: number; y: number }>;
     moved: boolean;
   } | null>(null);
   const pinchRef = useRef<{ distance: number; scale: number } | null>(null);
@@ -79,15 +116,73 @@ export function CanvasGallery() {
     focusedIdRef.current = focusedId;
   }, [focusedId]);
 
+  const livePlaced: PlacedWork[] = useMemo(() => {
+    return placed.map((work) => {
+      const pose = poses[work.id];
+      if (!pose) return work;
+      return { ...work, x: pose.x, y: pose.y };
+    });
+  }, [placed, poses]);
+
+  const worldBounds = useMemo(() => boundsOf(livePlaced), [livePlaced]);
+
   const focusedWork: PlacedWork | null = useMemo(() => {
     if (!focusedId) return null;
-    return placed.find((work) => work.id === focusedId) ?? null;
-  }, [focusedId, placed]);
+    return livePlaced.find((work) => work.id === focusedId) ?? null;
+  }, [focusedId, livePlaced]);
 
   const focusedIndex = useMemo(() => {
     if (!focusedId) return -1;
-    return placed.findIndex((work) => work.id === focusedId);
-  }, [focusedId, placed]);
+    return livePlaced.findIndex((work) => work.id === focusedId);
+  }, [focusedId, livePlaced]);
+
+  const publishPoses = useCallback(() => {
+    const world = worldRef.current;
+    if (!world) return;
+    const next: Record<string, Pose> = {};
+    for (const body of world.bodies) {
+      next[body.id] = { x: body.x, y: body.y, angle: body.angle };
+    }
+    setPoses(next);
+  }, []);
+
+  const stopPhysicsLoop = useCallback(() => {
+    if (physicsRafRef.current !== null) {
+      cancelAnimationFrame(physicsRafRef.current);
+      physicsRafRef.current = null;
+    }
+    lastPhysicsTimeRef.current = null;
+  }, []);
+
+  const ensurePhysicsLoop = useCallback(() => {
+    if (physicsRafRef.current !== null) return;
+
+    const tick = (now: number) => {
+      const world = worldRef.current;
+      if (!world) {
+        physicsRafRef.current = null;
+        return;
+      }
+
+      const last = lastPhysicsTimeRef.current ?? now;
+      lastPhysicsTimeRef.current = now;
+      let dt = (now - last) / 1000;
+      dt = Math.min(0.033, Math.max(0, dt));
+
+      const grabbedId = pieceDragRef.current?.id ?? null;
+      const awake = stepWorld(world, dt, grabbedId);
+      publishPoses();
+
+      if (awake || isWorldAwake(world, grabbedId)) {
+        physicsRafRef.current = requestAnimationFrame(tick);
+      } else {
+        physicsRafRef.current = null;
+        lastPhysicsTimeRef.current = null;
+      }
+    };
+
+    physicsRafRef.current = requestAnimationFrame(tick);
+  }, [publishPoses]);
 
   const stopTween = useCallback(() => {
     if (tweenRef.current !== null) {
@@ -125,10 +220,24 @@ export function CanvasGallery() {
     setCamera(clamped);
   }, []);
 
+  const workById = useCallback(
+    (id: string): PlacedWork | null => {
+      const base = placed.find((item) => item.id === id);
+      if (!base) return null;
+      const body = worldRef.current?.byId.get(id);
+      if (!body) return base;
+      return { ...base, x: body.x, y: body.y };
+    },
+    [placed],
+  );
+
   const fitAll = useCallback(() => {
     const { width, height } = viewport;
     if (width < 10 || height < 10) return;
-    const target = fitRect(worldBounds, width, height, OVERVIEW_PADDING);
+    const bounds = worldRef.current
+      ? boundsFromWorld(worldRef.current)
+      : worldBounds;
+    const target = fitRect(bounds, width, height, OVERVIEW_PADDING);
     magnetLockRef.current = false;
     setMode("overview");
     setFocusedId(null);
@@ -137,7 +246,7 @@ export function CanvasGallery() {
 
   const focusWork = useCallback(
     (id: string) => {
-      const work = placed.find((item) => item.id === id);
+      const work = workById(id);
       if (!work) return;
       const { width, height } = viewport;
       const target = fitRect(rectOf(work), width, height, FOCUS_PADDING);
@@ -146,44 +255,43 @@ export function CanvasGallery() {
       setHintVisible(false);
       animateTo(target, 560);
     },
-    [animateTo, placed, viewport],
+    [animateTo, viewport, workById],
   );
 
   const focusRelative = useCallback(
     (delta: number) => {
-      if (placed.length === 0) return;
+      if (livePlaced.length === 0) return;
       const current = focusedIdRef.current;
       const currentIndex = current
-        ? placed.findIndex((work) => work.id === current)
+        ? livePlaced.findIndex((work) => work.id === current)
         : 0;
       const base = currentIndex >= 0 ? currentIndex : 0;
-      const nextIndex = (base + delta + placed.length) % placed.length;
-      const next = placed[nextIndex];
+      const nextIndex = (base + delta + livePlaced.length) % livePlaced.length;
+      const next = livePlaced[nextIndex];
       if (next) focusWork(next.id);
     },
-    [focusWork, placed],
+    [focusWork, livePlaced],
   );
 
   const focusInDirection = useCallback(
     (direction: NavDirection) => {
       const current = focusedIdRef.current;
       if (!current) return;
-      const neighbor = findNeighbor(placed, current, direction);
+      const neighbor = findNeighbor(livePlaced, current, direction);
       if (neighbor) {
         focusWork(neighbor.id);
         return;
       }
-      // No spatial neighbor — fall back to catalog order.
       focusRelative(direction === "left" || direction === "up" ? -1 : 1);
     },
-    [focusRelative, focusWork, placed],
+    [focusRelative, focusWork, livePlaced],
   );
 
   const maybeExitFocusFromZoom = useCallback(
     (nextScale: number) => {
       if (modeRef.current !== "focused") return;
       const id = focusedIdRef.current;
-      const work = id ? placed.find((item) => item.id === id) : null;
+      const work = id ? workById(id) : null;
       if (!work) return;
       const { width, height } = viewport;
       const focusedFit = fitRect(rectOf(work), width, height, FOCUS_PADDING);
@@ -193,7 +301,7 @@ export function CanvasGallery() {
         setFocusedId(null);
       }
     },
-    [placed, viewport],
+    [viewport, workById],
   );
 
   const maybeMagneticSnap = useCallback(
@@ -207,7 +315,7 @@ export function CanvasGallery() {
       const { width, height } = viewport;
 
       const target = findMagneticWork(
-        placed,
+        livePlaced,
         worldX,
         worldY,
         next.scale,
@@ -219,7 +327,7 @@ export function CanvasGallery() {
       magnetLockRef.current = true;
       focusWork(target.id);
     },
-    [focusWork, placed, viewport],
+    [focusWork, livePlaced, viewport],
   );
 
   useEffect(() => {
@@ -235,7 +343,7 @@ export function CanvasGallery() {
 
       if (!didInitFit.current && width >= 40 && height >= 40) {
         didInitFit.current = true;
-        const target = fitRect(worldBounds, width, height, OVERVIEW_PADDING);
+        const target = fitRect(initialBounds, width, height, OVERVIEW_PADDING);
         cameraRef.current = target;
         setCamera(target);
       }
@@ -243,7 +351,7 @@ export function CanvasGallery() {
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [worldBounds]);
+  }, [initialBounds]);
 
   const onKeyNavigate = useEffectEvent((event: KeyboardEvent) => {
     if (event.key === "Escape") {
@@ -272,7 +380,13 @@ export function CanvasGallery() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  useEffect(() => () => stopTween(), [stopTween]);
+  useEffect(
+    () => () => {
+      stopTween();
+      stopPhysicsLoop();
+    },
+    [stopPhysicsLoop, stopTween],
+  );
 
   useEffect(() => {
     const el = viewportRef.current;
@@ -289,7 +403,6 @@ export function CanvasGallery() {
       if (modeRef.current === "focused") {
         const absX = Math.abs(event.deltaX);
         const absY = Math.abs(event.deltaY);
-        // Trackpad swipe → spatial neighbor; allow zoom-out with vertical scroll.
         const isSwipe =
           Math.max(absX, absY) > 12 &&
           (absX > absY * 1.1 || (absY > absX * 1.1 && absY > 28));
@@ -303,7 +416,6 @@ export function CanvasGallery() {
         }
 
         if (isSwipe && absY > absX && Math.abs(event.deltaY) > 40) {
-          // Large vertical flick navigates; smaller vertical still zooms.
           const now = performance.now();
           if (now - wheelNavAt.current < 420) return;
           wheelNavAt.current = now;
@@ -336,8 +448,57 @@ export function CanvasGallery() {
     stopTween,
   ]);
 
+  const screenToWorld = useCallback((clientX: number, clientY: number) => {
+    const el = viewportRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const rect = el.getBoundingClientRect();
+    const cam = cameraRef.current;
+    return {
+      x: (clientX - rect.left - cam.x) / cam.scale,
+      y: (clientY - rect.top - cam.y) / cam.scale,
+    };
+  }, []);
+
+  const onGrabWork = (
+    id: string,
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (event.button !== 0) return;
+    if (modeRef.current === "focused") return;
+
+    event.stopPropagation();
+    stopTween();
+
+    const world = worldRef.current;
+    const body = world?.byId.get(id);
+    if (!body || !world) return;
+
+    const point = screenToWorld(event.clientX, event.clientY);
+    body.vx = 0;
+    body.vy = 0;
+    body.omega *= 0.2;
+
+    pieceDragRef.current = {
+      id,
+      pointerId: event.pointerId,
+      grabOffsetX: point.x - body.x,
+      grabOffsetY: point.y - body.y,
+      lastWorldX: point.x,
+      lastWorldY: point.y,
+      lastT: performance.now(),
+      samples: [{ t: performance.now(), x: point.x, y: point.y }],
+      moved: false,
+    };
+    dragRef.current = null;
+    setDraggingId(id);
+    setHintVisible(false);
+    viewportRef.current?.setPointerCapture(event.pointerId);
+    ensurePhysicsLoop();
+  };
+
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
+    if (pieceDragRef.current) return;
     stopTween();
     dragRef.current = {
       pointerId: event.pointerId,
@@ -351,6 +512,46 @@ export function CanvasGallery() {
   };
 
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const pieceDrag = pieceDragRef.current;
+    if (pieceDrag && pieceDrag.pointerId === event.pointerId) {
+      const world = worldRef.current;
+      const body = world?.byId.get(pieceDrag.id);
+      if (!body) return;
+
+      const now = performance.now();
+      const point = screenToWorld(event.clientX, event.clientY);
+      const dt = Math.max(0.001, (now - pieceDrag.lastT) / 1000);
+
+      if (
+        !pieceDrag.moved &&
+        Math.hypot(point.x - (body.x + pieceDrag.grabOffsetX), point.y - (body.y + pieceDrag.grabOffsetY)) >
+          2 / cameraRef.current.scale
+      ) {
+        pieceDrag.moved = true;
+        skipClickRef.current = true;
+      }
+
+      applyDrag(
+        body,
+        point.x,
+        point.y,
+        pieceDrag.grabOffsetX,
+        pieceDrag.grabOffsetY,
+        dt,
+        pieceDrag.lastWorldX,
+        pieceDrag.lastWorldY,
+      );
+
+      pieceDrag.samples.push({ t: now, x: point.x, y: point.y });
+      if (pieceDrag.samples.length > 6) pieceDrag.samples.shift();
+      pieceDrag.lastWorldX = point.x;
+      pieceDrag.lastWorldY = point.y;
+      pieceDrag.lastT = now;
+      publishPoses();
+      ensurePhysicsLoop();
+      return;
+    }
+
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = event.clientX - drag.lastX;
@@ -363,7 +564,6 @@ export function CanvasGallery() {
     }
     if (drag.moved) {
       if (modeRef.current === "focused") {
-        // Soft rubber-band preview while swiping between pieces.
         applyCamera(panBy(cameraRef.current, dx * 0.35, dy * 0.35));
       } else {
         applyCamera(panBy(cameraRef.current, dx, dy));
@@ -374,6 +574,30 @@ export function CanvasGallery() {
   };
 
   const endDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const pieceDrag = pieceDragRef.current;
+    if (pieceDrag && pieceDrag.pointerId === event.pointerId) {
+      const world = worldRef.current;
+      const body = world?.byId.get(pieceDrag.id);
+      if (body) {
+        const point = screenToWorld(event.clientX, event.clientY);
+        pieceDrag.samples.push({
+          t: performance.now(),
+          x: point.x,
+          y: point.y,
+        });
+        releaseBody(body, pieceDrag.samples);
+      }
+      pieceDragRef.current = null;
+      setDraggingId(null);
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // ignore
+      }
+      ensurePhysicsLoop();
+      return;
+    }
+
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     dragRef.current = null;
@@ -396,7 +620,6 @@ export function CanvasGallery() {
         focusInDirection(direction);
         return;
       }
-      // Snap back to the focused piece if the swipe was too short.
       const id = focusedIdRef.current;
       if (id) focusWork(id);
     }
@@ -432,6 +655,8 @@ export function CanvasGallery() {
       const distance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
       pinchRef.current = { distance, scale: cameraRef.current.scale };
       dragRef.current = null;
+      pieceDragRef.current = null;
+      setDraggingId(null);
       setIsPanning(false);
     }
   };
@@ -485,7 +710,7 @@ export function CanvasGallery() {
 
       <div
         ref={viewportRef}
-        className={`canvas-viewport${isPanning ? " is-panning" : ""}`}
+        className={`canvas-viewport${isPanning ? " is-panning" : ""}${draggingId ? " is-dragging-piece" : ""}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -502,20 +727,28 @@ export function CanvasGallery() {
           className="canvas-world"
           style={{ transform: cameraTransform(camera) }}
         >
-          {placed.map((work) => (
-            <CanvasWork
-              key={work.id}
-              work={work}
-              focused={work.id === focusedId}
-              onSelect={onSelectWork}
-            />
-          ))}
+          {livePlaced.map((work) => {
+            const pose = poses[work.id] ?? { x: work.x, y: work.y, angle: 0 };
+            return (
+              <CanvasWork
+                key={work.id}
+                work={work}
+                x={pose.x}
+                y={pose.y}
+                angle={pose.angle}
+                focused={work.id === focusedId}
+                dragging={work.id === draggingId}
+                onSelect={onSelectWork}
+                onGrab={onGrabWork}
+              />
+            );
+          })}
         </div>
       </div>
 
       {hintVisible ? (
         <p className="canvas-hint">
-          Drag to explore · zoom toward a piece to snap · swipe between works
+          Drag a piece to toss it · empty space to pan · zoom to snap
         </p>
       ) : null}
 
@@ -530,7 +763,7 @@ export function CanvasGallery() {
           <div className="canvas-caption-meta">
             <span>{focusedWork.year}</span>
             <span className="canvas-caption-index">
-              {focusedIndex + 1} / {placed.length}
+              {focusedIndex + 1} / {livePlaced.length}
             </span>
           </div>
         </div>
