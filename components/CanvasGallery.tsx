@@ -44,6 +44,7 @@ import {
 type Mode = "overview" | "focused";
 
 const FOCUS_PADDING = 48;
+const FOCUS_SCALE = 0.5;
 const OVERVIEW_PADDING = 80;
 const MAGNET_SNAP_RATIO = 0.62;
 const SWIPE_MIN_DISTANCE = 56;
@@ -249,7 +250,13 @@ export function CanvasGallery() {
       const work = workById(id);
       if (!work) return;
       const { width, height } = viewport;
-      const target = fitRect(rectOf(work), width, height, FOCUS_PADDING);
+      const target = fitRect(
+        rectOf(work),
+        width,
+        height,
+        FOCUS_PADDING,
+        FOCUS_SCALE,
+      );
       setMode("focused");
       setFocusedId(id);
       setHintVisible(false);
@@ -294,7 +301,13 @@ export function CanvasGallery() {
       const work = id ? workById(id) : null;
       if (!work) return;
       const { width, height } = viewport;
-      const focusedFit = fitRect(rectOf(work), width, height, FOCUS_PADDING);
+      const focusedFit = fitRect(
+        rectOf(work),
+        width,
+        height,
+        FOCUS_PADDING,
+        FOCUS_SCALE,
+      );
       if (nextScale < focusedFit.scale * 0.55) {
         magnetLockRef.current = false;
         setMode("overview");
@@ -319,7 +332,9 @@ export function CanvasGallery() {
         worldX,
         worldY,
         next.scale,
-        (work) => fitRect(rectOf(work), width, height, FOCUS_PADDING).scale,
+        (work) =>
+          fitRect(rectOf(work), width, height, FOCUS_PADDING, FOCUS_SCALE)
+            .scale,
         MAGNET_SNAP_RATIO,
       );
 

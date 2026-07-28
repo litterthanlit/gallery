@@ -47,11 +47,12 @@ export function fitRect(
   viewportWidth: number,
   viewportHeight: number,
   padding = 64,
+  scaleFactor = 1,
 ): Camera {
   const availW = Math.max(1, viewportWidth - padding * 2);
   const availH = Math.max(1, viewportHeight - padding * 2);
   const scale = clamp(
-    Math.min(availW / rect.width, availH / rect.height),
+    Math.min(availW / rect.width, availH / rect.height) * scaleFactor,
     MIN_SCALE,
     MAX_SCALE,
   );
