@@ -33,26 +33,88 @@ function massForSize(w: number, h: number): number {
 }
 
 export function createWorld(placed: PlacedWork[]): PhysicsWorld {
-  const bodies: PhysicsBody[] = placed.map((work) => {
-    const mass = massForSize(work.displayWidth, work.displayHeight);
-    return {
-      id: work.id,
-      x: work.x,
-      y: work.y,
-      w: work.displayWidth,
-      h: work.displayHeight,
-      vx: 0,
-      vy: 0,
-      angle: 0,
-      omega: 0,
-      mass,
-      invMass: 1 / mass,
-    };
-  });
-  return {
-    bodies,
-    byId: new Map(bodies.map((body) => [body.id, body])),
+  const world = createEmptyWorld();
+  for (const work of placed) {
+    upsertBody(world, work);
+  }
+  return world;
+}
+
+export function createEmptyWorld(): PhysicsWorld {
+  return { bodies: [], byId: new Map() };
+}
+
+export function upsertBody(
+  world: PhysicsWorld,
+  work: PlacedWork,
+  pose?: { x: number; y: number; angle: number; vx?: number; vy?: number; omega?: number },
+): PhysicsBody {
+  const existing = world.byId.get(work.id);
+  if (existing) {
+    existing.w = work.displayWidth;
+    existing.h = work.displayHeight;
+    if (pose) {
+      existing.x = pose.x;
+      existing.y = pose.y;
+      existing.angle = pose.angle;
+      if (pose.vx !== undefined) existing.vx = pose.vx;
+      if (pose.vy !== undefined) existing.vy = pose.vy;
+      if (pose.omega !== undefined) existing.omega = pose.omega;
+    }
+    return existing;
+  }
+
+  const mass = massForSize(work.displayWidth, work.displayHeight);
+  const body: PhysicsBody = {
+    id: work.id,
+    x: pose?.x ?? work.x,
+    y: pose?.y ?? work.y,
+    w: work.displayWidth,
+    h: work.displayHeight,
+    vx: pose?.vx ?? 0,
+    vy: pose?.vy ?? 0,
+    angle: pose?.angle ?? 0,
+    omega: pose?.omega ?? 0,
+    mass,
+    invMass: 1 / mass,
   };
+  world.bodies.push(body);
+  world.byId.set(body.id, body);
+  return body;
+}
+
+export function removeBody(world: PhysicsWorld, id: string): PhysicsBody | null {
+  const body = world.byId.get(id);
+  if (!body) return null;
+  world.byId.delete(id);
+  world.bodies = world.bodies.filter((item) => item.id !== id);
+  return body;
+}
+
+/**
+ * Keep physics bodies aligned with the currently visible map instances.
+ * `memory` preserves poses when chunks stream out and back in.
+ */
+export function syncWorldToInstances(
+  world: PhysicsWorld,
+  instances: PlacedWork[],
+  memory: Map<string, { x: number; y: number; angle: number }>,
+  keepIds: Set<string>,
+) {
+  const desired = new Set(instances.map((item) => item.id));
+  for (const id of keepIds) desired.add(id);
+
+  for (const body of [...world.bodies]) {
+    if (desired.has(body.id)) continue;
+    memory.set(body.id, { x: body.x, y: body.y, angle: body.angle });
+    removeBody(world, body.id);
+  }
+
+  for (const instance of instances) {
+    if (world.byId.has(instance.id)) continue;
+    const remembered = memory.get(instance.id);
+    upsertBody(world, instance, remembered);
+  }
 }
 
 export function clonePositions(world: PhysicsWorld): Map<string, {

@@ -197,9 +197,9 @@ export function directionFromDelta(
 }
 
 /**
- * Piece under/near the zoom point that has grown large enough to magnetically snap.
- * Prefers the piece under the cursor; falls back to the nearest oversized piece
- * whose center is close to the zoom point.
+ * Piece under the zoom point that has grown large enough to magnetically snap.
+ * Requires the cursor to sit on the piece (with a modest pad) so empty-space
+ * zooms don't yank the camera onto a neighbor.
  */
 export function findMagneticWork(
   placed: PlacedWork[],
@@ -207,44 +207,31 @@ export function findMagneticWork(
   worldY: number,
   currentScale: number,
   focusScaleFor: (work: PlacedWork) => number,
-  snapRatio = 0.62,
-  hitPad = 48,
+  snapRatio = 0.88,
+  hitPad = 28,
 ): PlacedWork | null {
-  let bestHit: PlacedWork | null = null;
-  let bestHitDist = Infinity;
-  let bestNear: PlacedWork | null = null;
-  let bestNearScore = Infinity;
+  let best: PlacedWork | null = null;
+  let bestDist = Infinity;
 
   for (const work of placed) {
     const focusScale = focusScaleFor(work);
     if (currentScale < focusScale * snapRatio) continue;
 
-    const c = centerOf(work);
-    const dist = Math.hypot(worldX - c.x, worldY - c.y);
-    const halfDiag =
-      Math.hypot(work.displayWidth, work.displayHeight) / 2 + hitPad * 2;
-
     const left = work.x - hitPad;
     const top = work.y - hitPad;
     const right = work.x + work.displayWidth + hitPad;
     const bottom = work.y + work.displayHeight + hitPad;
-    const inside =
-      worldX >= left && worldX <= right && worldY >= top && worldY <= bottom;
-
-    if (inside && dist < bestHitDist) {
-      bestHitDist = dist;
-      bestHit = work;
+    if (worldX < left || worldX > right || worldY < top || worldY > bottom) {
+      continue;
     }
 
-    if (dist < halfDiag) {
-      // Closer + more zoomed-in relative to fit wins.
-      const score = dist / Math.max(focusScale, 0.001) - currentScale * 40;
-      if (score < bestNearScore) {
-        bestNearScore = score;
-        bestNear = work;
-      }
+    const c = centerOf(work);
+    const dist = Math.hypot(worldX - c.x, worldY - c.y);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = work;
     }
   }
 
-  return bestHit ?? bestNear;
+  return best;
 }

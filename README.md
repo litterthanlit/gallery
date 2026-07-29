@@ -13,12 +13,12 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## How to explore
 
+- **Pan** through an endless field of works — the map keeps going
 - **Drag a piece** to move and toss it — inertia, spin, and collisions
-- **Drag empty space** to pan the field
 - **Scroll / pinch** to zoom — zoom toward a piece and it **magnetically snaps** into focus
 - **Click** a piece to focus
 - **Swipe** left / right / up / down (or arrow keys) to move to the nearest neighbor
-- **Esc**, click empty space, zoom out, or double-click background to fit all
+- **Esc**, click empty space, zoom out, or double-click background to return home
 
 ## Add a work
 
