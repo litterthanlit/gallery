@@ -135,6 +135,7 @@ body::before {
   line-height: 0;
   appearance: none;
   -webkit-appearance: none;
+  transform-origin: center center;
   transform-style: preserve-3d;
   transform: rotateX(var(--tilt-x)) rotateY(var(--tilt-y)) rotateZ(var(--spin))
     translateZ(0);

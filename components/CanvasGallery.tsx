@@ -235,8 +235,9 @@ export function CanvasGallery() {
 
       const last = lastPhysicsTimeRef.current ?? now;
       lastPhysicsTimeRef.current = now;
+      // Cap dt so a tab-switch hitch doesn't launch pieces across the map.
       let dt = (now - last) / 1000;
-      dt = Math.min(0.033, Math.max(0, dt));
+      dt = Math.min(0.024, Math.max(0, dt));
 
       const grabbedId = pieceDragRef.current?.id ?? null;
       const awake = stepWorld(world, dt, grabbedId);
@@ -651,7 +652,13 @@ export function CanvasGallery() {
       );
 
       pieceDrag.samples.push({ t: now, x: point.x, y: point.y });
-      if (pieceDrag.samples.length > 6) pieceDrag.samples.shift();
+      // Keep ~120ms of history for a stable toss velocity.
+      while (
+        pieceDrag.samples.length > 2 &&
+        now - pieceDrag.samples[0]!.t > 120
+      ) {
+        pieceDrag.samples.shift();
+      }
       pieceDrag.lastWorldX = point.x;
       pieceDrag.lastWorldY = point.y;
       pieceDrag.lastT = now;

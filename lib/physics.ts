@@ -20,16 +20,21 @@ export type PhysicsWorld = {
   byId: Map<string, PhysicsBody>;
 };
 
-const FRICTION = 2.4; // linear damping (1/s)
-const ANGULAR_FRICTION = 3.2;
-const RESTITUTION = 0.42;
-const SLEEP_SPEED = 6;
-const SLEEP_OMEGA = 0.05;
-const MAX_SPEED = 4200;
-const MAX_OMEGA = 14;
+const FRICTION = 1.85; // linear damping (1/s)
+const ANGULAR_FRICTION = 2.4;
+const RESTITUTION = 0.28;
+const FRICTION_TANGENT = 0.18;
+const SLEEP_SPEED = 8;
+const SLEEP_OMEGA = 0.04;
+const MAX_SPEED = 2800;
+const MAX_OMEGA = 8;
+const COLLISION_ITERATIONS = 6;
+const POSITION_SLOP = 0.6;
+const POSITION_PERCENT = 0.72;
+const VELOCITY_SMOOTH = 0.55;
 
 function massForSize(w: number, h: number): number {
-  return Math.max(0.35, (w * h) / (380 * 380));
+  return Math.max(0.4, (w * h) / (380 * 380));
 }
 
 export function createWorld(placed: PlacedWork[]): PhysicsWorld {
@@ -47,12 +52,21 @@ export function createEmptyWorld(): PhysicsWorld {
 export function upsertBody(
   world: PhysicsWorld,
   work: PlacedWork,
-  pose?: { x: number; y: number; angle: number; vx?: number; vy?: number; omega?: number },
+  pose?: {
+    x: number;
+    y: number;
+    angle: number;
+    vx?: number;
+    vy?: number;
+    omega?: number;
+  },
 ): PhysicsBody {
   const existing = world.byId.get(work.id);
   if (existing) {
     existing.w = work.displayWidth;
     existing.h = work.displayHeight;
+    existing.mass = massForSize(existing.w, existing.h);
+    existing.invMass = 1 / existing.mass;
     if (pose) {
       existing.x = pose.x;
       existing.y = pose.y;
@@ -117,11 +131,14 @@ export function syncWorldToInstances(
   }
 }
 
-export function clonePositions(world: PhysicsWorld): Map<string, {
-  x: number;
-  y: number;
-  angle: number;
-}> {
+export function clonePositions(world: PhysicsWorld): Map<
+  string,
+  {
+    x: number;
+    y: number;
+    angle: number;
+  }
+> {
   const map = new Map<string, { x: number; y: number; angle: number }>();
   for (const body of world.bodies) {
     map.set(body.id, { x: body.x, y: body.y, angle: body.angle });
@@ -154,10 +171,14 @@ export function applyDrag(
 ) {
   const nextX = worldX - grabOffsetX;
   const nextY = worldY - grabOffsetY;
-  if (dt > 0 && dt < 0.08) {
-    body.vx = (nextX - body.x) / dt;
-    body.vy = (nextY - body.y) / dt;
-    // Torque from off-center grab motion.
+
+  if (dt > 0 && dt < 0.064) {
+    const measuredVx = (nextX - body.x) / dt;
+    const measuredVy = (nextY - body.y) / dt;
+    body.vx = mix(body.vx, measuredVx, VELOCITY_SMOOTH);
+    body.vy = mix(body.vy, measuredVy, VELOCITY_SMOOTH);
+
+    // Gentle torque from off-center grab motion (visual only).
     const cx = body.x + body.w / 2;
     const cy = body.y + body.h / 2;
     const rx = prevWorldX - cx;
@@ -165,40 +186,80 @@ export function applyDrag(
     const moveX = worldX - prevWorldX;
     const moveY = worldY - prevWorldY;
     const torque = rx * moveY - ry * moveX;
-    body.omega += (torque / (body.mass * 18000)) * 60;
+    const inertia = body.mass * ((body.w * body.w + body.h * body.h) / 12);
+    body.omega = mix(
+      body.omega,
+      body.omega + torque / Math.max(inertia, 1),
+      0.35,
+    );
   }
+
   body.x = nextX;
   body.y = nextY;
-  body.vx = clamp(body.vx, -MAX_SPEED, MAX_SPEED);
-  body.vy = clamp(body.vy, -MAX_SPEED, MAX_SPEED);
-  body.omega = clamp(body.omega, -MAX_OMEGA, MAX_OMEGA);
+  clampMotion(body);
 }
 
 export function releaseBody(
   body: PhysicsBody,
   samples: Array<{ t: number; x: number; y: number }>,
 ) {
-  if (samples.length >= 2) {
-    const last = samples[samples.length - 1]!;
-    const first = samples[Math.max(0, samples.length - 4)]!;
-    const dt = Math.max(0.008, (last.t - first.t) / 1000);
-    body.vx = clamp((last.x - first.x) / dt, -MAX_SPEED, MAX_SPEED);
-    body.vy = clamp((last.y - first.y) / dt, -MAX_SPEED, MAX_SPEED);
-
-    const cx = body.x + body.w / 2;
-    const cy = body.y + body.h / 2;
-    const rx = last.x - cx;
-    const ry = last.y - cy;
-    body.omega = clamp(
-      body.omega + (rx * body.vy - ry * body.vx) / (body.mass * 22000),
-      -MAX_OMEGA,
-      MAX_OMEGA,
-    );
+  if (samples.length < 2) {
+    clampMotion(body);
+    return;
   }
+
+  const last = samples[samples.length - 1]!;
+  // Prefer a window ~70ms back so a soft finger-stop doesn't kill the toss.
+  let first = samples[0]!;
+  for (let i = samples.length - 2; i >= 0; i--) {
+    const sample = samples[i]!;
+    if (last.t - sample.t >= 70) {
+      first = sample;
+      break;
+    }
+    first = sample;
+  }
+
+  const dt = Math.max(0.012, (last.t - first.t) / 1000);
+  const throwVx = (last.x - first.x) / dt;
+  const throwVy = (last.y - first.y) / dt;
+
+  // Blend measured throw with the smoothed in-drag velocity.
+  body.vx = mix(body.vx, throwVx, 0.7);
+  body.vy = mix(body.vy, throwVy, 0.7);
+
+  const cx = body.x + body.w / 2;
+  const cy = body.y + body.h / 2;
+  const rx = last.x - cx;
+  const ry = last.y - cy;
+  const inertia = body.mass * ((body.w * body.w + body.h * body.h) / 12);
+  const spinFromThrow = (rx * body.vy - ry * body.vx) / Math.max(inertia * 4, 1);
+  body.omega = mix(body.omega, body.omega + spinFromThrow, 0.45);
+  clampMotion(body);
 }
 
 /** Integrate velocities, resolve AABB collisions. Returns true if anything moved. */
 export function stepWorld(
+  world: PhysicsWorld,
+  dt: number,
+  grabbedId: string | null,
+): boolean {
+  if (dt <= 0) return grabbedId !== null;
+
+  // Substep for stability when the frame hitch is large.
+  const steps = dt > 0.02 ? 2 : 1;
+  const stepDt = dt / steps;
+  let awake = false;
+
+  for (let step = 0; step < steps; step++) {
+    if (integrate(world, stepDt, grabbedId)) awake = true;
+    if (resolveAllCollisions(world, grabbedId)) awake = true;
+  }
+
+  return awake || grabbedId !== null;
+}
+
+function integrate(
   world: PhysicsWorld,
   dt: number,
   grabbedId: string | null,
@@ -227,22 +288,36 @@ export function stepWorld(
       body.x += body.vx * dt;
       body.y += body.vy * dt;
       body.angle += body.omega * dt;
-      // Keep spin readable — gently unwind extreme angles over time via damping only.
+      // Keep angles from growing without bound (visual only).
+      if (body.angle > Math.PI * 4 || body.angle < -Math.PI * 4) {
+        body.angle = ((body.angle + Math.PI) % (Math.PI * 2)) - Math.PI;
+      }
       awake = true;
     }
   }
 
-  // Pairwise AABB collisions (skip grabbed body as solid — others bounce off it).
-  const bodies = world.bodies;
-  for (let i = 0; i < bodies.length; i++) {
-    for (let j = i + 1; j < bodies.length; j++) {
-      const a = bodies[i]!;
-      const b = bodies[j]!;
-      if (resolveCollision(a, b, grabbedId)) awake = true;
-    }
-  }
+  return awake;
+}
 
-  return awake || grabbedId !== null;
+function resolveAllCollisions(
+  world: PhysicsWorld,
+  grabbedId: string | null,
+): boolean {
+  let hit = false;
+  const bodies = world.bodies;
+  for (let iter = 0; iter < COLLISION_ITERATIONS; iter++) {
+    let iterHit = false;
+    for (let i = 0; i < bodies.length; i++) {
+      for (let j = i + 1; j < bodies.length; j++) {
+        if (resolveCollision(bodies[i]!, bodies[j]!, grabbedId)) {
+          iterHit = true;
+        }
+      }
+    }
+    if (!iterHit) break;
+    hit = true;
+  }
+  return hit;
 }
 
 function resolveCollision(
@@ -262,83 +337,97 @@ function resolveCollision(
   const aGrabbed = a.id === grabbedId;
   const bGrabbed = b.id === grabbedId;
 
-  // Separate along the shallow axis.
+  // Normal points from A → B (standard impulse convention).
+  let nx = 0;
+  let ny = 0;
+  let penetration = 0;
   if (overlapX < overlapY) {
-    const push = overlapX;
-    const dir = a.x + a.w / 2 < b.x + b.w / 2 ? -1 : 1;
-    separate(a, b, push * dir, 0, aGrabbed, bGrabbed);
-    bounce(a, b, dir, 0, aGrabbed, bGrabbed);
+    penetration = overlapX;
+    nx = a.x + a.w / 2 < b.x + b.w / 2 ? 1 : -1;
   } else {
-    const push = overlapY;
-    const dir = a.y + a.h / 2 < b.y + b.h / 2 ? -1 : 1;
-    separate(a, b, 0, push * dir, aGrabbed, bGrabbed);
-    bounce(a, b, 0, dir, aGrabbed, bGrabbed);
+    penetration = overlapY;
+    ny = a.y + a.h / 2 < b.y + b.h / 2 ? 1 : -1;
   }
 
-  // Transfer a little spin on impact.
-  const spinKick = 0.35;
-  if (!aGrabbed) a.omega += (b.vx - a.vx) * 0.00015 * spinKick;
-  if (!bGrabbed) b.omega += (a.vx - b.vx) * 0.00015 * spinKick;
-
-  return true;
-}
-
-function separate(
-  a: PhysicsBody,
-  b: PhysicsBody,
-  dx: number,
-  dy: number,
-  aGrabbed: boolean,
-  bGrabbed: boolean,
-) {
-  if (aGrabbed && !bGrabbed) {
-    b.x -= dx;
-    b.y -= dy;
-    return;
-  }
-  if (bGrabbed && !aGrabbed) {
-    a.x += dx;
-    a.y += dy;
-    return;
-  }
-  const total = a.invMass + b.invMass;
-  if (total <= 0) return;
-  a.x += (dx * a.invMass) / total;
-  a.y += (dy * a.invMass) / total;
-  b.x -= (dx * b.invMass) / total;
-  b.y -= (dy * b.invMass) / total;
-}
-
-function bounce(
-  a: PhysicsBody,
-  b: PhysicsBody,
-  nx: number,
-  ny: number,
-  aGrabbed: boolean,
-  bGrabbed: boolean,
-) {
   const invA = aGrabbed ? 0 : a.invMass;
   const invB = bGrabbed ? 0 : b.invMass;
   const invSum = invA + invB;
-  if (invSum <= 0) return;
+  if (invSum <= 0) return false;
+
+  // Positional correction along normal, with slop to avoid micro-jitter.
+  const correction = Math.max(penetration - POSITION_SLOP, 0) * POSITION_PERCENT;
+  if (correction > 0) {
+    const cx = (correction * nx) / invSum;
+    const cy = (correction * ny) / invSum;
+    if (!aGrabbed) {
+      a.x -= cx * invA;
+      a.y -= cy * invA;
+    }
+    if (!bGrabbed) {
+      b.x += cx * invB;
+      b.y += cy * invB;
+    }
+  }
 
   const rvx = b.vx - a.vx;
   const rvy = b.vy - a.vy;
   const velAlongNormal = rvx * nx + rvy * ny;
-  if (velAlongNormal > 0) return;
 
-  const j = (-(1 + RESTITUTION) * velAlongNormal) / invSum;
-  const ix = j * nx;
-  const iy = j * ny;
+  // Only apply impulse when approaching.
+  if (velAlongNormal < 0) {
+    const j = (-(1 + RESTITUTION) * velAlongNormal) / invSum;
+    const ix = j * nx;
+    const iy = j * ny;
 
-  if (!aGrabbed) {
-    a.vx -= ix * invA;
-    a.vy -= iy * invA;
+    if (!aGrabbed) {
+      a.vx -= ix * invA;
+      a.vy -= iy * invA;
+    }
+    if (!bGrabbed) {
+      b.vx += ix * invB;
+      b.vy += iy * invB;
+    }
+
+    // Coulomb-ish tangent friction so pieces don't skate forever after a hit.
+    const tx = -ny;
+    const ty = nx;
+    const rvx2 = b.vx - a.vx;
+    const rvy2 = b.vy - a.vy;
+    const velAlongTangent = rvx2 * tx + rvy2 * ty;
+    const jtMax = Math.abs(j) * FRICTION_TANGENT;
+    let jt = -velAlongTangent / invSum;
+    jt = clamp(jt, -jtMax, jtMax);
+
+    if (!aGrabbed) {
+      a.vx -= jt * tx * invA;
+      a.vy -= jt * ty * invA;
+    }
+    if (!bGrabbed) {
+      b.vx += jt * tx * invB;
+      b.vy += jt * ty * invB;
+    }
+
+    // Small visual spin from impact, scaled by relative speed.
+    const impact = Math.abs(velAlongNormal);
+    const spinKick = clamp(impact * 0.00008, 0, 0.35);
+    const side = nx !== 0 ? Math.sign(rvy) || 1 : Math.sign(rvx) || 1;
+    if (!aGrabbed) a.omega -= spinKick * side;
+    if (!bGrabbed) b.omega += spinKick * side;
   }
-  if (!bGrabbed) {
-    b.vx += ix * invB;
-    b.vy += iy * invB;
-  }
+
+  clampMotion(a);
+  clampMotion(b);
+  return true;
+}
+
+function clampMotion(body: PhysicsBody) {
+  body.vx = clamp(body.vx, -MAX_SPEED, MAX_SPEED);
+  body.vy = clamp(body.vy, -MAX_SPEED, MAX_SPEED);
+  body.omega = clamp(body.omega, -MAX_OMEGA, MAX_OMEGA);
+}
+
+function mix(current: number, next: number, amount: number): number {
+  return current + (next - current) * amount;
 }
 
 function clamp(value: number, min: number, max: number): number {
