@@ -1,7 +1,9 @@
 import { works, type Work } from "@/data/works";
 import {
   boundsOf,
+  createRng,
   layoutWorks,
+  shuffleInPlace,
   type PlacedWork,
   type Rect,
 } from "@/lib/canvasLayout";
@@ -13,7 +15,7 @@ export type MapInstance = PlacedWork & {
   chunkY: number;
 };
 
-const CHUNK_PAD = 420;
+const CHUNK_PAD = 480;
 
 function hash2(cx: number, cy: number): number {
   let h = (cx * 374761393 + cy * 668265263) | 0;
@@ -21,20 +23,32 @@ function hash2(cx: number, cy: number): number {
   return h | 0;
 }
 
-function unit(n: number): number {
-  return ((n >>> 0) % 10000) / 10000;
-}
-
-/** Home-cell layout used as the repeating tile. */
+/** Home-cell layout used for initial camera fit + chunk sizing. */
 export function createTileTemplate(items: Work[] = works): {
   template: PlacedWork[];
   chunkSize: number;
   homeBounds: Rect;
+  catalog: Work[];
 } {
-  const template = layoutWorks(items);
-  const homeBounds = boundsOf(template);
-  const span = Math.max(homeBounds.width, homeBounds.height) + CHUNK_PAD * 2;
-  return { template, chunkSize: Math.ceil(span), homeBounds };
+  const template = layoutWorks(items, {
+    seed: 1,
+    angleOffset: 0,
+    radiusScale: 1,
+    jitter: 30,
+    sizeScale: 1,
+    gap: 72,
+  });
+  const refBounds = boundsOf(template);
+  const chunkSize = Math.ceil(
+    Math.max(refBounds.width, refBounds.height) + CHUNK_PAD * 2,
+  );
+  const home = instancesForChunk(0, 0, items, chunkSize);
+  return {
+    template,
+    chunkSize,
+    homeBounds: boundsOf(home),
+    catalog: items,
+  };
 }
 
 export function makeInstanceId(
@@ -65,32 +79,68 @@ export function catalogIndex(workId: string, items: Work[] = works): number {
   return items.findIndex((work) => work.id === workId);
 }
 
-/** Build one chunk's instances from the template, with seeded drift so tiles differ. */
+/**
+ * Pick a varied subset + order for this chunk so neighboring tiles
+ * don't echo the same manufactured collage.
+ */
+function catalogForChunk(catalog: Work[], seed: number): Work[] {
+  const rand = createRng(seed ^ 0xa24baed5);
+  const pool = shuffleInPlace([...catalog], rand);
+
+  // Most chunks show nearly everything; occasionally drop 1–3 so density breathes.
+  const drop =
+    pool.length <= 4 ? 0 : Math.min(3, Math.floor(rand() * rand() * 4));
+  const kept = drop > 0 ? pool.slice(0, pool.length - drop) : pool;
+
+  // Rotate starting piece so the "center" work isn't always Chaos.
+  const rot = Math.floor(rand() * kept.length);
+  return kept.slice(rot).concat(kept.slice(0, rot));
+}
+
+/** Build one chunk with a unique seeded arrangement. */
 export function instancesForChunk(
   chunkX: number,
   chunkY: number,
-  template: PlacedWork[],
+  catalog: Work[],
   chunkSize: number,
 ): MapInstance[] {
   const seed = hash2(chunkX, chunkY);
-  const driftX = (unit(seed) - 0.5) * 160;
-  const driftY = (unit(seed ^ 0x9e3779b9) - 0.5) * 160;
-  const originX = chunkX * chunkSize + driftX;
-  const originY = chunkY * chunkSize + driftY;
+  const rand = createRng(seed);
 
-  return template.map((work, index) => {
-    const jitterX = (unit(seed + index * 97) - 0.5) * 70;
-    const jitterY = (unit(seed + index * 191) - 0.5) * 70;
-    return {
-      ...work,
-      id: makeInstanceId(work.id, chunkX, chunkY),
-      workId: work.id,
-      chunkX,
-      chunkY,
-      x: originX + work.x + jitterX,
-      y: originY + work.y + jitterY,
-    };
+  const subset = catalogForChunk(catalog, seed);
+  const local = layoutWorks(subset, {
+    seed: seed ^ 0x27d4eb2d,
+    angleOffset: rand() * Math.PI * 2,
+    radiusScale: 0.82 + rand() * 0.4,
+    jitter: 36 + rand() * 70,
+    sizeScale: 0.9 + rand() * 0.18,
+    gap: 56 + rand() * 40,
   });
+
+  const localBounds = boundsOf(local);
+  // Center the cluster in the chunk cell, then add a little cell drift.
+  const driftX = (rand() - 0.5) * chunkSize * 0.12;
+  const driftY = (rand() - 0.5) * chunkSize * 0.12;
+  const originX =
+    chunkX * chunkSize +
+    (chunkSize - localBounds.width) / 2 -
+    localBounds.x +
+    driftX;
+  const originY =
+    chunkY * chunkSize +
+    (chunkSize - localBounds.height) / 2 -
+    localBounds.y +
+    driftY;
+
+  return local.map((work) => ({
+    ...work,
+    id: makeInstanceId(work.id, chunkX, chunkY),
+    workId: work.id,
+    chunkX,
+    chunkY,
+    x: originX + work.x,
+    y: originY + work.y,
+  }));
 }
 
 export function visibleChunks(
@@ -131,14 +181,14 @@ export function gatherVisibleInstances(
   camera: { x: number; y: number; scale: number },
   viewportWidth: number,
   viewportHeight: number,
-  template: PlacedWork[],
+  catalog: Work[],
   chunkSize: number,
 ): MapInstance[] {
   const view = viewWorldRect(camera, viewportWidth, viewportHeight, 280);
   const chunks = visibleChunks(view, chunkSize, 1);
   const out: MapInstance[] = [];
   for (const { cx, cy } of chunks) {
-    out.push(...instancesForChunk(cx, cy, template, chunkSize));
+    out.push(...instancesForChunk(cx, cy, catalog, chunkSize));
   }
   return out;
 }

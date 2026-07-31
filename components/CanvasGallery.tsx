@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { works } from "@/data/works";
+import { works, type Work } from "@/data/works";
 import { CanvasWork } from "@/components/CanvasWork";
 import {
   cameraTransform,
@@ -61,7 +61,7 @@ type Pose = { x: number; y: number; angle: number };
 
 function resolveInstance(
   id: string,
-  template: PlacedWork[],
+  catalog: Work[],
   chunkSize: number,
 ): MapInstance | null {
   const parsed = parseInstanceId(id);
@@ -70,7 +70,7 @@ function resolveInstance(
     instancesForChunk(
       parsed.chunkX,
       parsed.chunkY,
-      template,
+      catalog,
       chunkSize,
     ).find((item) => item.id === id) ?? null
   );
@@ -143,10 +143,10 @@ export function CanvasGallery() {
         camera,
         viewport.width,
         viewport.height,
-        tile.template,
+        tile.catalog,
         tile.chunkSize,
       ),
-    [camera, tile.chunkSize, tile.template, viewport.height, viewport.width],
+    [camera, tile.catalog, tile.chunkSize, viewport.height, viewport.width],
   );
 
   const activeInstances = useMemo(() => {
@@ -155,14 +155,14 @@ export function CanvasGallery() {
 
     const ensure = (id: string | null) => {
       if (!id || byId.has(id)) return;
-      const found = resolveInstance(id, tile.template, tile.chunkSize);
+      const found = resolveInstance(id, tile.catalog, tile.chunkSize);
       if (found) byId.set(found.id, found);
     };
     ensure(focusedId);
     ensure(draggingId);
 
     return [...byId.values()];
-  }, [draggingId, focusedId, streamed, tile.chunkSize, tile.template]);
+  }, [draggingId, focusedId, streamed, tile.catalog, tile.chunkSize]);
 
   const livePlaced: PlacedWork[] = useMemo(() => {
     return activeInstances.map((work) => {
@@ -295,12 +295,12 @@ export function CanvasGallery() {
       const body = worldRef.current?.byId.get(id);
       const base =
         activeInstances.find((item) => item.id === id) ??
-        resolveInstance(id, tile.template, tile.chunkSize);
+        resolveInstance(id, tile.catalog, tile.chunkSize);
       if (!base) return null;
       if (!body) return base;
       return { ...base, x: body.x, y: body.y };
     },
-    [activeInstances, tile.chunkSize, tile.template],
+    [activeInstances, tile.catalog, tile.chunkSize],
   );
 
   const fitAll = useCallback(() => {

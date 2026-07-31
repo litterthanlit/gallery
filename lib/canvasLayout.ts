@@ -17,13 +17,31 @@ export type Rect = {
 const DISPLAY_BASE = 380;
 const GAP = 72;
 
-function displaySize(work: Work): { displayWidth: number; displayHeight: number } {
+export type LayoutOptions = {
+  /** Deterministic seed — same seed ⇒ same layout. */
+  seed?: number;
+  /** Radians added to the spiral start angle. */
+  angleOffset?: number;
+  /** Multiplier on spiral radius growth. */
+  radiusScale?: number;
+  /** Extra position jitter amplitude in px. */
+  jitter?: number;
+  /** Display size multiplier (e.g. 0.92–1.08). */
+  sizeScale?: number;
+  /** Gap used during overlap push. */
+  gap?: number;
+};
+
+function displaySize(
+  work: Work,
+  sizeScale = 1,
+): { displayWidth: number; displayHeight: number } {
   const aspect = work.width / work.height;
   if (aspect >= 1) {
-    const displayWidth = DISPLAY_BASE;
+    const displayWidth = DISPLAY_BASE * sizeScale;
     return { displayWidth, displayHeight: displayWidth / aspect };
   }
-  const displayHeight = DISPLAY_BASE * 1.15;
+  const displayHeight = DISPLAY_BASE * 1.15 * sizeScale;
   return { displayWidth: displayHeight * aspect, displayHeight };
 }
 
@@ -36,25 +54,58 @@ function overlaps(a: Rect, b: Rect, pad: number): boolean {
   );
 }
 
+/** Mulberry32 — tiny deterministic PRNG. */
+export function createRng(seed: number): () => number {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6d2b79f5;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function shuffleInPlace<T>(items: T[], rand: () => number): T[] {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = items[i]!;
+    items[i] = items[j]!;
+    items[j] = tmp;
+  }
+  return items;
+}
+
 /** Deterministic organic scatter — seeded spiral + overlap push. */
-export function layoutWorks(items: Work[] = works): PlacedWork[] {
+export function layoutWorks(
+  items: Work[] = works,
+  options: LayoutOptions = {},
+): PlacedWork[] {
+  const seed = options.seed ?? 1;
+  const rand = createRng(seed);
+  const angleOffset = options.angleOffset ?? rand() * Math.PI * 2;
+  const radiusScale = options.radiusScale ?? 0.9 + rand() * 0.28;
+  const jitter = options.jitter ?? 28 + rand() * 55;
+  const sizeScale = options.sizeScale ?? 0.94 + rand() * 0.12;
+  const gap = options.gap ?? GAP * (0.85 + rand() * 0.35);
+  const pushStep = 42 + rand() * 18;
+
   const placed: PlacedWork[] = [];
-  const centerX = 0;
-  const centerY = 0;
+  const centerX = (rand() - 0.5) * 40;
+  const centerY = (rand() - 0.5) * 40;
 
   items.forEach((work, index) => {
-    const { displayWidth, displayHeight } = displaySize(work);
-    const angle = index * 2.399963; // golden angle
-    const radius = index === 0 ? 0 : 180 + index * 155;
+    const { displayWidth, displayHeight } = displaySize(work, sizeScale);
+    const angle = angleOffset + index * 2.399963; // golden angle
+    const radius =
+      index === 0 ? rand() * 40 : (160 + index * (140 + rand() * 40)) * radiusScale;
     let x = centerX + Math.cos(angle) * radius - displayWidth / 2;
     let y = centerY + Math.sin(angle) * radius - displayHeight / 2;
 
-    // Slight deterministic jitter so it feels less spiral-perfect
-    x += ((index * 47) % 61) - 30;
-    y += ((index * 29) % 53) - 26;
+    x += (rand() - 0.5) * jitter * 2;
+    y += (rand() - 0.5) * jitter * 2;
 
     let rect: Rect = { x, y, width: displayWidth, height: displayHeight };
-    for (let iter = 0; iter < 40; iter++) {
+    for (let iter = 0; iter < 48; iter++) {
       let pushed = false;
       for (const other of placed) {
         const otherRect: Rect = {
@@ -63,7 +114,7 @@ export function layoutWorks(items: Work[] = works): PlacedWork[] {
           width: other.displayWidth,
           height: other.displayHeight,
         };
-        if (!overlaps(rect, otherRect, GAP)) continue;
+        if (!overlaps(rect, otherRect, gap)) continue;
         const cx = rect.x + rect.width / 2;
         const cy = rect.y + rect.height / 2;
         const ox = otherRect.x + otherRect.width / 2;
@@ -73,10 +124,12 @@ export function layoutWorks(items: Work[] = works): PlacedWork[] {
         const len = Math.hypot(dx, dy) || 1;
         dx /= len;
         dy /= len;
+        // Nudge off-axis so push paths don't form a rigid lattice.
+        const side = (rand() - 0.5) * 0.35;
         rect = {
           ...rect,
-          x: rect.x + dx * 48,
-          y: rect.y + dy * 48,
+          x: rect.x + (dx + -dy * side) * pushStep,
+          y: rect.y + (dy + dx * side) * pushStep,
         };
         pushed = true;
       }
