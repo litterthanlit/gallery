@@ -693,15 +693,26 @@ export function CanvasGallery() {
     if (pieceDrag && pieceDrag.pointerId === event.pointerId) {
       const world = worldRef.current;
       const body = world?.byId.get(pieceDrag.id);
+      const id = pieceDrag.id;
+      const wasClick = !pieceDrag.moved;
+
       if (body) {
-        const point = screenToWorld(event.clientX, event.clientY);
-        pieceDrag.samples.push({
-          t: performance.now(),
-          x: point.x,
-          y: point.y,
-        });
-        releaseBody(body, pieceDrag.samples);
+        if (wasClick) {
+          // Tap — settle the piece and zoom in (viewport capture eats the button click).
+          body.vx = 0;
+          body.vy = 0;
+          body.omega = 0;
+        } else {
+          const point = screenToWorld(event.clientX, event.clientY);
+          pieceDrag.samples.push({
+            t: performance.now(),
+            x: point.x,
+            y: point.y,
+          });
+          releaseBody(body, pieceDrag.samples);
+        }
       }
+
       pieceDragRef.current = null;
       setDraggingId(null);
       try {
@@ -710,6 +721,11 @@ export function CanvasGallery() {
         // ignore
       }
       ensurePhysicsLoop();
+
+      if (wasClick) {
+        skipClickRef.current = true;
+        focusWork(id);
+      }
       return;
     }
 
