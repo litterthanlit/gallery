@@ -210,6 +210,45 @@ body::before {
   transform: translateZ(-32px) translateY(22px) scale(0.94);
 }
 
+.canvas-work-name {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35em;
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+  color: var(--text);
+  animation: canvas-work-name-in 0.45s ease both;
+}
+
+.canvas-work-name-title {
+  font-family: var(--font-syne), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.canvas-work-name-year {
+  color: var(--text-faint);
+  font-size: 0.62em;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+
+@keyframes canvas-work-name-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(0.4em);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
 .canvas-hint {
   position: fixed;
   left: 50%;
@@ -272,20 +311,16 @@ body::before {
   }
 }
 
-.canvas-caption-title {
-  margin: 0;
-  font-family: var(--font-syne), ui-sans-serif, system-ui, sans-serif;
-  font-size: clamp(1.1rem, 2.4vw, 1.55rem);
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
 .canvas-caption-note {
-  margin: 0.35rem 0 0;
+  margin: 0;
   max-width: 28rem;
   color: var(--text-muted);
   font-size: 0.875rem;
   line-height: 1.45;
+}
+
+.canvas-caption-meta-only {
+  justify-content: flex-end;
 }
 
 .canvas-caption-meta {

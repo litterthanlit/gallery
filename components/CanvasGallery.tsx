@@ -325,6 +325,8 @@ export function CanvasGallery() {
         FOCUS_PADDING,
         FOCUS_SCALE,
       );
+      // Leave a little room under the piece for the title label.
+      target.y -= 36;
       focusScaleRef.current = target.scale;
       setMode("focused");
       setFocusedId(id);
@@ -882,6 +884,7 @@ export function CanvasGallery() {
                 angle={pose.angle}
                 focused={work.id === focusedId}
                 dragging={work.id === draggingId}
+                cameraScale={camera.scale}
                 onSelect={onSelectWork}
                 onGrab={onGrabWork}
               />
@@ -896,16 +899,19 @@ export function CanvasGallery() {
         </p>
       ) : null}
 
-      {focusedWork ? (
+      {focusedWork?.note ? (
         <div className="canvas-caption">
-          <div>
-            <h2 className="canvas-caption-title">{focusedWork.title}</h2>
-            {focusedWork.note ? (
-              <p className="canvas-caption-note">{focusedWork.note}</p>
-            ) : null}
-          </div>
+          <p className="canvas-caption-note">{focusedWork.note}</p>
           <div className="canvas-caption-meta">
-            <span>{focusedWork.year}</span>
+            <span className="canvas-caption-index">
+              {focusedCatalogIndex >= 0 ? focusedCatalogIndex + 1 : "—"} /{" "}
+              {works.length}
+            </span>
+          </div>
+        </div>
+      ) : focusedWork ? (
+        <div className="canvas-caption canvas-caption-meta-only">
+          <div className="canvas-caption-meta">
             <span className="canvas-caption-index">
               {focusedCatalogIndex >= 0 ? focusedCatalogIndex + 1 : "—"} /{" "}
               {works.length}
