@@ -1,18 +1,6 @@
 import type { Metadata } from "next";
-import { Instrument_Sans, Syne } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
 import "./globals.css";
-
-const instrument = Instrument_Sans({
-  variable: "--font-instrument",
-  subsets: ["latin"],
-  display: "swap",
-});
-
-const syne = Syne({
-  variable: "--font-syne",
-  subsets: ["latin"],
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "Art — litt.",
@@ -32,10 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${instrument.variable} ${syne.variable} h-full antialiased`}
-    >
+    <html lang="en" className={`${GeistSans.variable} h-full antialiased`}>
       <body className="min-h-full">{children}</body>
     </html>
   );

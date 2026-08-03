@@ -16,8 +16,8 @@
   --color-ink: var(--text);
   --color-muted: var(--text-muted);
   --color-faint: var(--text-faint);
-  --font-sans: var(--font-instrument);
-  --font-display: var(--font-syne);
+  --font-sans: var(--font-geist-sans);
+  --font-display: var(--font-geist-sans);
 }
 
 * {
@@ -38,7 +38,8 @@ body {
     radial-gradient(90% 70% at 92% 8%, #e4eaf2 0%, transparent 50%),
     radial-gradient(70% 50% at 50% 100%, #ebe6df 0%, transparent 45%),
     var(--bg);
-  font-family: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 500;
 }
 
 body::before {
@@ -225,8 +226,8 @@ body::before {
 }
 
 .canvas-work-name-title {
-  font-family: var(--font-syne), ui-sans-serif, system-ui, sans-serif;
-  font-weight: 600;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 500;
   letter-spacing: -0.02em;
   line-height: 1.15;
 }
