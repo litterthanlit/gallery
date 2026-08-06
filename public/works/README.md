@@ -4,7 +4,6 @@ Drop image files here using the same names as in `data/works.ts`.
 
 | File | Piece |
 | --- | --- |
-| `chaos.jpg` | Chaos |
 | `whats-better-than-chaos.jpg` | What's Better Than Chaos |
 | `emptiness-surrounding-me.jpg` | Emptiness Surrounding Me |
 | `in-the-fire.jpg` | In the Fire |
@@ -19,6 +18,9 @@ Drop image files here using the same names as in `data/works.ts`.
 | `anarchy.jpg` | Anarchy |
 | `compulsive-panic.jpeg` | Compulsive Panic |
 | `current-obsession.jpeg` | Current Obsession |
+| `untitled-artwork-2.jpg` | Untitled Artwork 2 |
+| `signal-in-the-static.jpg` | Signal in the Static |
+| `buzz.jpg` | Buzz |
 
 Preferred: JPG or WebP, ~1600–2400px on the long edge.
 Until a file is present, the gallery shows a quiet title placeholder.

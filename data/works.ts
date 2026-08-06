@@ -10,20 +10,12 @@ export type Work = {
 
 export const works: Work[] = [
   {
-    id: "chaos",
-    title: "Chaos",
-    year: 2024,
-    src: "/works/chaos.jpg",
-    width: 1308,
-    height: 900,
-  },
-  {
     id: "whats-better-than-chaos",
     title: "What's Better Than Chaos",
-    year: 2025,
+    year: 2024,
     src: "/works/whats-better-than-chaos.jpg",
-    width: 2200,
-    height: 1533,
+    width: 1308,
+    height: 900,
   },
   {
     id: "emptiness-surrounding-me",
@@ -128,5 +120,29 @@ export const works: Work[] = [
     src: "/works/current-obsession.jpeg",
     width: 2480,
     height: 3508,
+  },
+  {
+    id: "untitled-artwork-2",
+    title: "Untitled Artwork 2",
+    year: 2025,
+    src: "/works/untitled-artwork-2.jpg",
+    width: 2200,
+    height: 2200,
+  },
+  {
+    id: "signal-in-the-static",
+    title: "Signal in the Static",
+    year: 2025,
+    src: "/works/signal-in-the-static.jpg",
+    width: 2200,
+    height: 1650,
+  },
+  {
+    id: "buzz",
+    title: "Buzz",
+    year: 2025,
+    src: "/works/buzz.jpg",
+    width: 2200,
+    height: 1561,
   },
 ];
