@@ -145,4 +145,12 @@ export const works: Work[] = [
     width: 2200,
     height: 1561,
   },
+  {
+    id: "litopia",
+    title: "Litopia",
+    year: 2024,
+    src: "/works/litopia.gif",
+    width: 480,
+    height: 334,
+  },
 ];

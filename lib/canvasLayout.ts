@@ -15,7 +15,7 @@ export type Rect = {
 };
 
 const DISPLAY_BASE = 380;
-const GAP = 72;
+const GAP = 128;
 
 export type LayoutOptions = {
   /** Deterministic seed — same seed ⇒ same layout. */
@@ -86,8 +86,8 @@ export function layoutWorks(
   const radiusScale = options.radiusScale ?? 0.9 + rand() * 0.28;
   const jitter = options.jitter ?? 28 + rand() * 55;
   const sizeScale = options.sizeScale ?? 0.94 + rand() * 0.12;
-  const gap = options.gap ?? GAP * (0.85 + rand() * 0.35);
-  const pushStep = 42 + rand() * 18;
+  const gap = options.gap ?? GAP * (0.95 + rand() * 0.25);
+  const pushStep = 56 + rand() * 22;
 
   const placed: PlacedWork[] = [];
   const centerX = (rand() - 0.5) * 40;
@@ -97,7 +97,9 @@ export function layoutWorks(
     const { displayWidth, displayHeight } = displaySize(work, sizeScale);
     const angle = angleOffset + index * 2.399963; // golden angle
     const radius =
-      index === 0 ? rand() * 40 : (160 + index * (140 + rand() * 40)) * radiusScale;
+      index === 0
+        ? rand() * 48
+        : (200 + index * (175 + rand() * 45)) * radiusScale;
     let x = centerX + Math.cos(angle) * radius - displayWidth / 2;
     let y = centerY + Math.sin(angle) * radius - displayHeight / 2;
 

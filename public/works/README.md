@@ -21,6 +21,7 @@ Drop image files here using the same names as in `data/works.ts`.
 | `untitled-artwork-2.jpg` | Untitled Artwork 2 |
 | `signal-in-the-static.jpg` | Signal in the Static |
 | `buzz.jpg` | Buzz |
+| `litopia.gif` | Litopia |
 
 Preferred: JPG or WebP, ~1600–2400px on the long edge.
 Until a file is present, the gallery shows a quiet title placeholder.

@@ -15,7 +15,7 @@ export type MapInstance = PlacedWork & {
   chunkY: number;
 };
 
-const CHUNK_PAD = 480;
+const CHUNK_PAD = 560;
 
 function hash2(cx: number, cy: number): number {
   let h = (cx * 374761393 + cy * 668265263) | 0;
@@ -33,10 +33,10 @@ export function createTileTemplate(items: Work[] = works): {
   const template = layoutWorks(items, {
     seed: 1,
     angleOffset: 0,
-    radiusScale: 1,
-    jitter: 30,
+    radiusScale: 1.05,
+    jitter: 36,
     sizeScale: 1,
-    gap: 72,
+    gap: 128,
   });
   const refBounds = boundsOf(template);
   const chunkSize = Math.ceil(
@@ -111,10 +111,10 @@ export function instancesForChunk(
   const local = layoutWorks(subset, {
     seed: seed ^ 0x27d4eb2d,
     angleOffset: rand() * Math.PI * 2,
-    radiusScale: 0.82 + rand() * 0.4,
-    jitter: 36 + rand() * 70,
+    radiusScale: 0.95 + rand() * 0.35,
+    jitter: 40 + rand() * 60,
     sizeScale: 0.9 + rand() * 0.18,
-    gap: 56 + rand() * 40,
+    gap: 110 + rand() * 50,
   });
 
   const localBounds = boundsOf(local);
