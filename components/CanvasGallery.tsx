@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import {
   useCallback,
   useEffect,
@@ -835,25 +834,7 @@ export function CanvasGallery() {
   };
 
   return (
-    <div className="canvas-shell">
-      <header className="canvas-header">
-        <a
-          href="https://www.litt.design"
-          className="canvas-logo"
-          aria-label="litt.design home"
-        >
-          <Image
-            src="/logo.png"
-            alt="litt."
-            width={723}
-            height={814}
-            className="h-10 w-auto object-contain sm:h-11"
-            priority
-          />
-        </a>
-        <p className="canvas-header-label">Art</p>
-      </header>
-
+    <>
       <div
         ref={viewportRef}
         className={`canvas-viewport${isPanning ? " is-panning" : ""}${draggingId ? " is-dragging-piece" : ""}`}
@@ -946,6 +927,6 @@ export function CanvasGallery() {
           </button>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }

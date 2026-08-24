@@ -70,10 +70,10 @@ body::before {
   left: 0;
   right: 0;
   z-index: 60;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
-  gap: 1.5rem;
+  gap: 1rem;
   padding: 1.35rem 1.25rem 0;
   pointer-events: none;
 }
@@ -88,13 +88,54 @@ body::before {
   pointer-events: auto;
   display: inline-flex;
   text-decoration: none;
+  justify-self: start;
 }
 
 .canvas-header-label {
   margin: 0;
+  justify-self: end;
   font-size: 0.875rem;
   color: var(--text-muted);
   letter-spacing: 0.04em;
+}
+
+.gallery-view-toggle {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.gallery-view-btn {
+  margin: 0;
+  padding: 0.2rem 0.15rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.gallery-view-btn.is-active {
+  color: var(--text);
+}
+
+.gallery-view-btn:hover,
+.gallery-view-btn:focus-visible {
+  color: var(--text);
+}
+
+.gallery-view-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+
+.gallery-view-sep {
+  color: var(--text-faint);
+  font-size: 0.8125rem;
+  line-height: 1;
 }
 
 .canvas-viewport {
@@ -120,6 +161,34 @@ body::before {
   transform-origin: 0 0;
   transform-style: preserve-3d;
   will-change: transform;
+}
+
+.orb-rig {
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.orb-stage {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.orb-work {
+  left: 50%;
+  top: 50%;
+  will-change: transform, opacity;
+  transition: opacity 0.12s linear;
+}
+
+.orb-work-name {
+  z-index: 56;
 }
 
 .canvas-work {
@@ -393,13 +462,14 @@ body::before {
 @media (prefers-reduced-motion: reduce) {
   .canvas-hint,
   .canvas-caption,
-  .canvas-work {
+  .canvas-work,
+  .orb-work {
     animation: none !important;
     transition: none !important;
   }
 
-  .canvas-work,
-  .canvas-work.is-focused {
+  .canvas-work:not(.orb-work),
+  .canvas-work.is-focused:not(.orb-work) {
     transform: none;
   }
 
