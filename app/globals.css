@@ -380,6 +380,25 @@ body::before {
   transform: translateZ(0);
 }
 
+.canvas-work-image-detail {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 1px;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.canvas-work-image-detail.is-loaded {
+  opacity: 1;
+}
+
 .canvas-work.is-focused .canvas-work-image {
   box-shadow:
     0 1px 0 rgb(255 255 255 / 0.65) inset,

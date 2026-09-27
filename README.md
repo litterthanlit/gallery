@@ -51,6 +51,8 @@ Switch views from the header: **Field** (endless canvas) or **Orb** (pieces on a
 }
 ```
 
+Images are resized and converted (AVIF/WebP) by `next/image` on request, so drop in the full-resolution file. Tiles load a small version and the full-size one loads only when a piece is opened. Animated GIFs can't be resized and are served as-is, so keep them small (or use a video).
+
 ## Stack
 
 Next.js App Router, TypeScript, Tailwind CSS v4. Static catalog — no CMS or backend.

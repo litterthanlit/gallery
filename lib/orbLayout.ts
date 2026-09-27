@@ -12,6 +12,10 @@ export type OrbTile = Work & {
   /** Size (pre-perspective) that fills the frame when focused. */
   focusWidth: number;
   aspect: number;
+  /** Largest on-screen CSS width at rest (front, hovered) — for image `sizes`. */
+  tileSizePx: number;
+  /** On-screen CSS width when focused — for image `sizes`. */
+  focusSizePx: number;
 };
 
 export const ORB_PERSPECTIVE = 1500;
@@ -103,6 +107,7 @@ export function placeOnSphere(
   const spacing = radius * Math.sqrt((4 * Math.PI) / count);
   const box = spacing * TILE_FILL;
   const frontScale = perspectiveScale(radius + focusDolly(radius));
+  const restScale = perspectiveScale(radius) * 1.1;
   const compact = viewportWidth < 640;
   const maxW = viewportWidth * (compact ? 0.84 : 0.6);
   const maxH = viewportHeight * (compact ? 0.56 : 0.62);
@@ -124,6 +129,9 @@ export function placeOnSphere(
       tileWidth,
       focusWidth,
       aspect,
+      // Round up to steps so a resize doesn't re-pick images for tiny changes.
+      tileSizePx: Math.ceil((tileWidth * restScale) / 16) * 16,
+      focusSizePx: Math.ceil((focusWidth * frontScale) / 32) * 32,
     };
   });
 }

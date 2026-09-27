@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { WorkImage } from "@/components/WorkImage";
 import type { OrbTile } from "@/lib/orbLayout";
 
 type OrbWorkProps = {
@@ -48,15 +49,12 @@ export const OrbWork = memo(function OrbWork({
       aria-pressed={focused}
     >
       <span className="canvas-work-plane" aria-hidden="true" />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={tile.src}
-        alt=""
-        width={tile.width}
-        height={tile.height}
-        draggable={false}
-        decoding="async"
-        className="canvas-work-image"
+      <WorkImage
+        work={tile}
+        tileSizes={`${tile.tileSizePx}px`}
+        detailSizes={`${tile.focusSizePx}px`}
+        detail={focused}
+        loading="eager"
       />
     </button>
   );

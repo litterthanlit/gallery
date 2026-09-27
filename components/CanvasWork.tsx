@@ -1,5 +1,6 @@
 "use client";
 
+import { WorkImage } from "@/components/WorkImage";
 import type { PlacedWork } from "@/lib/canvasLayout";
 
 type CanvasWorkProps = {
@@ -69,14 +70,11 @@ export function CanvasWork({
         aria-pressed={focused}
       >
         <span className="canvas-work-plane" aria-hidden="true" />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={work.src}
-          alt={work.title}
-          width={work.width}
-          height={work.height}
-          draggable={false}
-          className="canvas-work-image"
+        <WorkImage
+          work={work}
+          tileSizes={`${Math.ceil(work.displayWidth)}px`}
+          detailSizes="(max-width: 640px) 90vw, 50vw"
+          detail={focused}
         />
       </button>
 
