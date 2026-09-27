@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { withBase } from "@/lib/basePath";
 
 export type GalleryView = "field" | "orb";
 
@@ -18,7 +19,7 @@ export function GalleryHeader({ view, onViewChange }: GalleryHeaderProps) {
         aria-label="litt.design home"
       >
         <Image
-          src="/logo.png"
+          src={withBase("/logo.png")}
           alt="litt."
           width={723}
           height={814}

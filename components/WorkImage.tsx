@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import type { Work } from "@/data/works";
+import { withBase } from "@/lib/basePath";
 
 /** Must match `images.qualities` in next.config.ts. */
 const TILE_QUALITY = 70;
@@ -57,7 +58,7 @@ export function WorkImage({
   return (
     <>
       <Image
-        src={work.src}
+        src={withBase(work.src)}
         alt=""
         width={work.width}
         height={work.height}
@@ -78,7 +79,7 @@ export function WorkImage({
             el.defaultMuted = true;
             if (!prefersReducedMotion()) void el.play().catch(() => {});
           }}
-          poster={work.src}
+          poster={withBase(work.src)}
           width={work.width}
           height={work.height}
           muted
@@ -96,14 +97,14 @@ export function WorkImage({
           {work.video.map((source) => (
             <source
               key={source}
-              src={source}
+              src={withBase(source)}
               type={source.endsWith(".webm") ? "video/webm" : "video/mp4"}
             />
           ))}
         </video>
       ) : showDetail ? (
         <Image
-          src={work.src}
+          src={withBase(work.src)}
           alt=""
           width={work.width}
           height={work.height}

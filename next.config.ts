@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
+import { BASE_PATH } from "./lib/basePath";
 
 const nextConfig: NextConfig = {
+  // Served at litt.design/art — see lib/basePath.ts.
+  basePath: BASE_PATH,
+  // The bare deployment domain still lands on the gallery.
+  async redirects() {
+    return [{ source: "/", destination: BASE_PATH, basePath: false, permanent: false }];
+  },
   // The social card route reads artwork and fonts from disk at request time.
   outputFileTracingIncludes: {
     "/og": [
@@ -19,8 +26,9 @@ const nextConfig: NextConfig = {
   images: {
     // Only the catalog and the logo are run through the optimizer.
     localPatterns: [
-      { pathname: "/works/**", search: "" },
-      { pathname: "/logo.png", search: "" },
+      // Image URLs carry the base path, so the patterns must too.
+      { pathname: `${BASE_PATH}/works/**`, search: "" },
+      { pathname: `${BASE_PATH}/logo.png`, search: "" },
     ],
     // Keep in sync with TILE_QUALITY / DETAIL_QUALITY in components/WorkImage.tsx.
     qualities: [70, 85],

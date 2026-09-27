@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import { siteUrl } from "@/lib/siteUrl";
 import "./globals.css";
+import { withBase } from "@/lib/basePath";
 
 export const metadata: Metadata = {
   metadataBase: siteUrl(),
@@ -13,11 +14,11 @@ export const metadata: Metadata = {
     description:
       "A quiet digital gallery of abstract works by Nick / litt.design.",
     type: "website",
-    images: [{ url: "/og", width: 1200, height: 630, alt: "Art — litt." }],
+    images: [{ url: withBase("/og"), width: 1200, height: 630, alt: "Art — litt." }],
   },
   twitter: {
     card: "summary_large_image",
-    images: ["/og"],
+    images: [withBase("/og")],
   },
 };
 
