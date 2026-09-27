@@ -36,6 +36,12 @@ Every open piece has its own link: `/?work=litopia` or `/?view=orb&work=litopia`
 - **Esc**, **← Orb**, click empty space, or scroll / pinch out to return
 - Keyboard: arrows spin the orb, **Enter** opens the piece facing you, **Tab** moves between visible pieces
 
+## Link previews
+
+Shared links unfurl with a generated card: `/og` for the gallery and `/og?work=<id>` for a single piece (the artwork, title, year and its number in the catalog). Cards are rendered on demand by [`app/og/route.tsx`](app/og/route.tsx) and cached for a week.
+
+Previews need an absolute URL. On Vercel it's picked up automatically; for a custom domain set `NEXT_PUBLIC_SITE_URL` (e.g. `https://art.litt.design`).
+
 ## Add a work
 
 1. Drop the image into [`public/works/`](public/works/).

@@ -22,11 +22,19 @@ export async function generateMetadata({
   const work = works.find((item) => item.id === id);
   if (!work) return {};
   const title = `${work.title} — litt.`;
-  const description = work.note ?? `${work.title} (${work.year}) — abstract work by Nick / litt.design.`;
+  const description =
+    work.note ?? `${work.title} (${work.year}) — abstract work by Nick / litt.design.`;
+  const image = {
+    url: `/og?work=${encodeURIComponent(work.id)}`,
+    width: 1200,
+    height: 630,
+    alt: `${work.title}, ${work.year}`,
+  };
   return {
     title,
     description,
-    openGraph: { title, description, type: "website" },
+    openGraph: { title, description, type: "website", images: [image] },
+    twitter: { card: "summary_large_image", title, description, images: [image.url] },
   };
 }
 

@@ -34,7 +34,8 @@ ffmpeg -i piece.gif -c:v libx264 -preset veryslow -crf 27 -tune animation \
   -pix_fmt yuv420p -movflags +faststart -an piece.mp4
 ffmpeg -i piece.gif -c:v libvpx-vp9 -crf 36 -b:v 0 -row-mt 1 \
   -pix_fmt yuv420p -an piece.webm
-ffmpeg -i piece.gif -frames:v 1 -q:v 1 piece.jpg
+# Poster: pick a representative frame (N), not just the first one.
+ffmpeg -i piece.gif -vf "select='eq(n,N)'" -fps_mode vfr -frames:v 1 -q:v 1 piece.jpg
 ```
 
 Width and height must be even for H.264 (add `-vf "crop=trunc(iw/2)*2:trunc(ih/2)*2"` if not).
