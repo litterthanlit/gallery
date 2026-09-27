@@ -15,6 +15,8 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Switch views from the header: **Field** (endless canvas) or **Orb** (pieces on an invisible sphere). Direct link: `/?view=orb`.
 
+Every open piece has its own link: `/?work=litopia` or `/?view=orb&work=litopia`. Opening a piece adds a history entry, so the browser's **Back** closes it; hopping between pieces updates the link in place, and switching views keeps the open piece.
+
 ### Field
 
 - **Pan** through an endless field of works — the map keeps going

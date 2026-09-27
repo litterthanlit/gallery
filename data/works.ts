@@ -6,6 +6,13 @@ export type Work = {
   width: number;
   height: number;
   note?: string;
+  /**
+   * Motion pieces: video sources, in order of preference, that play when the
+   * piece is opened. `src` is then the poster frame, so tiles stay a small
+   * optimized still. Ship an MP4 (H.264) plus a WebM (VP9) — some browsers
+   * only decode one of them.
+   */
+  video?: string[];
 };
 
 export const works: Work[] = [
@@ -149,7 +156,8 @@ export const works: Work[] = [
     id: "litopia",
     title: "Litopia",
     year: 2024,
-    src: "/works/litopia.gif",
+    src: "/works/litopia.jpg",
+    video: ["/works/litopia.mp4", "/works/litopia.webm"],
     width: 480,
     height: 334,
   },

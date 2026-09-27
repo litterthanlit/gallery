@@ -21,9 +21,14 @@ type WorkImageProps = {
   loading?: "lazy" | "eager";
 };
 
+function prefersReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 /**
- * A work as two optimized images: a small tile that always loads, and a
- * large one that only loads when the piece is opened and fades in over it.
+ * A work as two layers: a small optimized tile that always loads, and a
+ * detail layer — the full-size image, or the video for motion pieces — that
+ * only loads when the piece is opened and fades in over it.
  */
 export function WorkImage({
   work,
@@ -63,7 +68,40 @@ export function WorkImage({
         draggable={false}
         className="canvas-work-image"
       />
-      {showDetail ? (
+      {showDetail && work.video ? (
+        <video
+          ref={(el) => {
+            // React doesn't reflect `muted` as an attribute; set it before
+            // playback so autoplay policies allow it.
+            if (!el) return;
+            el.muted = true;
+            el.defaultMuted = true;
+            if (!prefersReducedMotion()) void el.play().catch(() => {});
+          }}
+          poster={work.src}
+          width={work.width}
+          height={work.height}
+          muted
+          loop
+          playsInline
+          preload="auto"
+          aria-hidden="true"
+          onPlaying={() => setDetailLoaded(true)}
+          // Reduced motion: no autoplay, but still show the sharp first frame.
+          onLoadedData={() => {
+            if (prefersReducedMotion()) setDetailLoaded(true);
+          }}
+          className={`canvas-work-image-detail${detailLoaded ? " is-loaded" : ""}`}
+        >
+          {work.video.map((source) => (
+            <source
+              key={source}
+              src={source}
+              type={source.endsWith(".webm") ? "video/webm" : "video/mp4"}
+            />
+          ))}
+        </video>
+      ) : showDetail ? (
         <Image
           src={work.src}
           alt=""
