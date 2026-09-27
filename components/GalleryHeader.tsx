@@ -23,23 +23,11 @@ export function GalleryHeader({ view, onViewChange }: GalleryHeaderProps) {
           width={723}
           height={814}
           className="h-10 w-auto object-contain sm:h-11"
-          priority
+          preload
         />
       </a>
 
       <div className="gallery-view-toggle" role="tablist" aria-label="Gallery view">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === "field"}
-          className={`gallery-view-btn${view === "field" ? " is-active" : ""}`}
-          onClick={() => onViewChange("field")}
-        >
-          Field
-        </button>
-        <span className="gallery-view-sep" aria-hidden="true">
-          ·
-        </span>
         <button
           type="button"
           role="tab"
@@ -48,6 +36,18 @@ export function GalleryHeader({ view, onViewChange }: GalleryHeaderProps) {
           onClick={() => onViewChange("orb")}
         >
           Orb
+        </button>
+        <span className="gallery-view-sep" aria-hidden="true">
+          ·
+        </span>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "field"}
+          className={`gallery-view-btn${view === "field" ? " is-active" : ""}`}
+          onClick={() => onViewChange("field")}
+        >
+          Field
         </button>
       </div>
 

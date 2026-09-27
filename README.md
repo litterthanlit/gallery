@@ -1,6 +1,6 @@
 # Art — litt.
 
-A Cosmos-inspired infinite canvas gallery for works from [litt.design/art](https://www.litt.design/art).
+A gallery for works from [litt.design/art](https://www.litt.design/art).
 
 ## Run locally
 
@@ -13,18 +13,9 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## How to explore
 
-Switch views from the header: **Field** (endless canvas) or **Orb** (pieces on an invisible sphere). Direct link: `/?view=orb`.
+The site opens on the **Orb** (pieces on an invisible sphere). Switch to the **Field** (an endless masonry wall) from the header, or link to it directly: `/?view=field`.
 
-Every open piece has its own link: `/?work=litopia` or `/?view=orb&work=litopia`. Opening a piece adds a history entry, so the browser's **Back** closes it; hopping between pieces updates the link in place, and switching views keeps the open piece.
-
-### Field
-
-- **Pan** through an endless field of works — the map keeps going
-- **Drag a piece** to move and toss it — inertia, spin, and collisions
-- **Scroll / pinch** to zoom — zoom toward a piece and it **magnetically snaps** into focus
-- **Click** a piece to focus
-- **Swipe** left / right / up / down (or arrow keys) to move to the nearest neighbor
-- **Esc**, click empty space, zoom out, or double-click background to return home
+Every open piece has its own link: `/?work=litopia` or `/?view=field&work=litopia`. Opening a piece adds a history entry, so the browser's **Back** closes it; hopping between pieces updates the link in place, and switching views keeps the open piece. Old `/?view=orb` links still work.
 
 ### Orb
 
@@ -35,6 +26,19 @@ Every open piece has its own link: `/?work=litopia` or `/?view=orb&work=litopia`
 - **Swipe**, arrows, or the ‹ › buttons hop to a neighboring piece
 - **Esc**, **← Orb**, click empty space, or scroll / pinch out to return
 - Keyboard: arrows spin the orb, **Enter** opens the piece facing you, **Tab** moves between visible pieces
+
+### Field
+
+A Cosmos-style infinite canvas with roomier gutters: equal-width columns of work at their true proportions, repeating in every direction. Each column cycles through the whole catalog in its own order, so every piece is always nearby.
+
+- **Drag** or **scroll** (trackpad) to wander — flings carry a little momentum
+- **Pinch** or **⌘/Ctrl + scroll** to zoom at the cursor
+- **Click** a piece to bring it up; the rest of the wall steps back
+- **Swipe**, arrows, or the ‹ › buttons hop to the neighboring piece
+- **Esc**, **← Field**, click empty space, or scroll away to return
+- Keyboard: arrows pan the wall, **Enter** opens the piece in the middle
+
+Layout constants (column width, gutter, how many columns fit) live in [`lib/fieldLayout.ts`](lib/fieldLayout.ts).
 
 ## Link previews
 
