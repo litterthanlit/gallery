@@ -21,9 +21,13 @@ Drop image files here using the same names as in `data/works.ts`.
 | `untitled-artwork-2.jpg` | Untitled Artwork 2 |
 | `signal-in-the-static.jpg` | Signal in the Static |
 | `buzz.jpg` | Buzz |
-| `litopia.jpg` + `litopia.mp4` + `litopia.webm` | Litopia (poster + motion) |
+| `litopia-poster.jpg` + `litopia.mp4` + `litopia.webm` | Litopia (poster + motion) |
 
 Preferred: JPG or WebP, ~1600–2400px on the long edge.
+
+**Replacing an image? Give it a new filename** (e.g. `piece-v2.jpg`) and update
+`data/works.ts`. Resized copies are cached for a week and can't be purged, so a
+file swapped in place can keep showing the old version.
 
 Motion pieces ship as a muted MP4 + WebM pair plus a JPG poster frame rather
 than a GIF (GIFs can't be resized and are much larger). Both video formats are

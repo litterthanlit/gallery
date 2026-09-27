@@ -156,7 +156,7 @@ export const works: Work[] = [
     id: "litopia",
     title: "Litopia",
     year: 2024,
-    src: "/works/litopia.jpg",
+    src: "/works/litopia-poster.jpg",
     video: ["/works/litopia.mp4", "/works/litopia.webm"],
     width: 480,
     height: 334,
