@@ -853,7 +853,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       <div
         ref={titleRef}
         className="orb-title"
-        style={{ fontSize: compact ? 18 : 22 }}
+        style={{ fontSize: compact ? 14 : 15 }}
         aria-hidden="true"
       >
         {focusedTile ? (
