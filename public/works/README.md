@@ -17,11 +17,15 @@ Drop image files here using the same names as in `data/works.ts`.
 | `distorted-light.jpg` | Distorted Light |
 | `anarchy.jpg` | Anarchy |
 | `compulsive-panic.jpeg` | Compulsive Panic |
-| `current-obsession.jpeg` | Current Obsession |
+| `current-obsession-landscape.jpg` | Current Obsession |
 | `untitled-artwork-2.jpg` | Untitled Artwork 2 |
 | `signal-in-the-static.jpg` | Signal in the Static |
 | `buzz.jpg` | Buzz |
 | `litopia-poster.jpg` + `litopia.mp4` + `litopia.webm` | Litopia (poster + motion) |
+| `disc.jpg` | Disc (still; the original is a GIF) |
+| `untitled-iii.jpg` | Untitled III |
+| `untitled-iv.jpg` | Untitled IV |
+| `reaching-my-self-destruction.jpg` | Reaching My Self-Destruction |
 
 Preferred: JPG or WebP, ~1600–2400px on the long edge.
 
