@@ -57,6 +57,10 @@ const MAGNET_COOLDOWN_MS = 550;
 const SWIPE_MIN_DISTANCE = 56;
 
 type Pose = { x: number; y: number; angle: number };
+type Viewport = { width: number; height: number };
+
+/** Stand-in size before the first measure; nothing is rendered until then. */
+const UNMEASURED: Viewport = { width: 0, height: 0 };
 
 function resolveInstance(
   id: string,
@@ -92,7 +96,11 @@ export function CanvasGallery() {
   const [hintVisible, setHintVisible] = useState(true);
   const [isPanning, setIsPanning] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [viewport, setViewport] = useState({ width: 1200, height: 800 });
+  // Measured on the client only: pieces aren't server-rendered, because their
+  // float layout can differ from the browser's in the last digit and the
+  // right camera depends on the real screen size anyway.
+  const [viewport, setViewport] = useState<Viewport | null>(null);
+  const size = viewport ?? UNMEASURED;
 
   const cameraRef = useRef(camera);
   const modeRef = useRef(mode);
@@ -138,14 +146,16 @@ export function CanvasGallery() {
 
   const streamed = useMemo(
     () =>
-      gatherVisibleInstances(
-        camera,
-        viewport.width,
-        viewport.height,
-        tile.catalog,
-        tile.chunkSize,
-      ),
-    [camera, tile.catalog, tile.chunkSize, viewport.height, viewport.width],
+      viewport
+        ? gatherVisibleInstances(
+            camera,
+            viewport.width,
+            viewport.height,
+            tile.catalog,
+            tile.chunkSize,
+          )
+        : [],
+    [camera, tile.catalog, tile.chunkSize, viewport],
   );
 
   const activeInstances = useMemo(() => {
@@ -303,20 +313,20 @@ export function CanvasGallery() {
   );
 
   const fitAll = useCallback(() => {
-    const { width, height } = viewport;
+    const { width, height } = size;
     if (width < 10 || height < 10) return;
     const target = fitRect(tile.homeBounds, width, height, OVERVIEW_PADDING);
     magnetCooldownUntil.current = performance.now() + MAGNET_COOLDOWN_MS;
     setMode("overview");
     setFocusedId(null);
     animateTo(target);
-  }, [animateTo, tile.homeBounds, viewport]);
+  }, [animateTo, tile.homeBounds, size]);
 
   const focusWork = useCallback(
     (id: string) => {
       const work = workById(id);
       if (!work) return;
-      const { width, height } = viewport;
+      const { width, height } = size;
       const target = fitRect(
         rectOf(work),
         width,
@@ -332,7 +342,7 @@ export function CanvasGallery() {
       setHintVisible(false);
       animateTo(target, 560);
     },
-    [animateTo, viewport, workById],
+    [animateTo, size, workById],
   );
 
   const focusRelative = useCallback(
@@ -370,7 +380,7 @@ export function CanvasGallery() {
       const id = focusedIdRef.current;
       const work = id ? workById(id) : null;
       if (!work) return;
-      const { width, height } = viewport;
+      const { width, height } = size;
       const focusedFit = fitRect(
         rectOf(work),
         width,
@@ -384,19 +394,19 @@ export function CanvasGallery() {
         setFocusedId(null);
       }
     },
-    [viewport, workById],
+    [size, workById],
   );
 
   const focusScaleForWork = useCallback(
     (work: PlacedWork) =>
       fitRect(
         rectOf(work),
-        viewport.width,
-        viewport.height,
+        size.width,
+        size.height,
         FOCUS_PADDING,
         FOCUS_SCALE,
       ).scale,
-    [viewport.height, viewport.width],
+    [size.height, size.width],
   );
 
   const maybeMagneticSnap = useCallback(
@@ -850,28 +860,30 @@ export function CanvasGallery() {
         role="application"
         aria-label="Art canvas"
       >
-        <div
-          className="canvas-world"
-          style={{ transform: cameraTransform(camera) }}
-        >
-          {livePlaced.map((work) => {
-            const pose = poses[work.id] ?? { x: work.x, y: work.y, angle: 0 };
-            return (
-              <CanvasWork
-                key={work.id}
-                work={work}
-                x={pose.x}
-                y={pose.y}
-                angle={pose.angle}
-                focused={work.id === focusedId}
-                dragging={work.id === draggingId}
-                cameraScale={camera.scale}
-                onSelect={onSelectWork}
-                onGrab={onGrabWork}
-              />
-            );
-          })}
-        </div>
+        {viewport ? (
+          <div
+            className="canvas-world"
+            style={{ transform: cameraTransform(camera) }}
+          >
+            {livePlaced.map((work) => {
+              const pose = poses[work.id] ?? { x: work.x, y: work.y, angle: 0 };
+              return (
+                <CanvasWork
+                  key={work.id}
+                  work={work}
+                  x={pose.x}
+                  y={pose.y}
+                  angle={pose.angle}
+                  focused={work.id === focusedId}
+                  dragging={work.id === draggingId}
+                  cameraScale={camera.scale}
+                  onSelect={onSelectWork}
+                  onGrab={onGrabWork}
+                />
+              );
+            })}
+          </div>
+        ) : null}
       </div>
 
       {hintVisible ? (

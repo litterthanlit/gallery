@@ -163,10 +163,36 @@ body::before {
   will-change: transform;
 }
 
+/* The field renders only once measured; ease it in instead of popping. */
+.canvas-world {
+  animation: canvas-world-in 0.6s ease both;
+}
+
+@keyframes canvas-world-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.orb-viewport {
+  /* Keep the 3D scene in its own layer so pieces never paint over the header. */
+  z-index: 0;
+  isolation: isolate;
+  perspective-origin: 50% 50%;
+  outline: none;
+}
+
+.orb-viewport:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--focus) 35%, transparent);
+}
+
 .orb-rig {
   position: absolute;
   left: 50%;
-  top: 45%;
+  top: 50%;
   width: 0;
   height: 0;
   transform-style: preserve-3d;
@@ -180,15 +206,118 @@ body::before {
   will-change: transform;
 }
 
-.orb-work {
-  left: 50%;
-  top: 50%;
+.canvas-work.orb-work {
+  left: 0;
+  top: 0;
+  opacity: 0;
+  pointer-events: none;
   will-change: transform, opacity;
-  transition: opacity 0.12s linear;
+  transition: none;
 }
 
-.orb-work-name {
+.canvas-work.orb-work .canvas-work-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.canvas-work.orb-work.is-focused {
+  cursor: zoom-out;
+}
+
+.orb-viewport.is-focused {
+  cursor: default;
+}
+
+.orb-viewport.is-focused.is-panning {
+  cursor: grabbing;
+}
+
+.orb-title {
+  position: fixed;
+  left: 0;
+  top: 0;
   z-index: 56;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35em;
+  max-width: min(32rem, 86vw);
+  text-align: center;
+  color: var(--text);
+  pointer-events: none;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.orb-viewport ~ .canvas-hint {
+  white-space: nowrap;
+}
+
+.orb-hover-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  color: var(--text);
+  animation-duration: 0.25s;
+}
+
+.orb-hover-year {
+  color: var(--text-faint);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+}
+
+.orb-close {
+  position: fixed;
+  top: 5.25rem;
+  left: 50%;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0.45rem 0.55rem 0.45rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transform: translateX(-50%);
+  transition: color 0.2s ease, background-color 0.2s ease;
+  animation: canvas-hint-in 0.45s ease both;
+}
+
+.orb-close:hover,
+.orb-close:focus-visible {
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+}
+
+.orb-close:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.orb-close-key {
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+}
+
+@media (hover: none) {
+  .orb-close-key {
+    display: none;
+  }
 }
 
 .canvas-work {
@@ -263,6 +392,25 @@ body::before {
     0 12px 28px rgb(26 25 23 / 0.12),
     0 36px 64px rgb(26 25 23 / 0.1);
   transform: translateZ(0);
+}
+
+.canvas-work-image-detail {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 1px;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.canvas-work-image-detail.is-loaded {
+  opacity: 1;
 }
 
 .canvas-work.is-focused .canvas-work-image {
@@ -463,7 +611,8 @@ body::before {
   .canvas-hint,
   .canvas-caption,
   .canvas-work,
-  .orb-work {
+  .canvas-world,
+  .orb-close {
     animation: none !important;
     transition: none !important;
   }
