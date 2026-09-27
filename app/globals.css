@@ -163,6 +163,20 @@ body::before {
   will-change: transform;
 }
 
+/* The field renders only once measured; ease it in instead of popping. */
+.canvas-world {
+  animation: canvas-world-in 0.6s ease both;
+}
+
+@keyframes canvas-world-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .orb-viewport {
   /* Keep the 3D scene in its own layer so pieces never paint over the header. */
   z-index: 0;
@@ -597,6 +611,7 @@ body::before {
   .canvas-hint,
   .canvas-caption,
   .canvas-work,
+  .canvas-world,
   .orb-close {
     animation: none !important;
     transition: none !important;
