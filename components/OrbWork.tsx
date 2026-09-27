@@ -1,63 +1,63 @@
 "use client";
 
-import type { OrbWork as OrbWorkData } from "@/lib/orbLayout";
+import { memo } from "react";
+import type { OrbTile } from "@/lib/orbLayout";
 
 type OrbWorkProps = {
-  work: OrbWorkData;
-  pitch: number;
-  yaw: number;
-  facing: number;
+  tile: OrbTile;
   focused: boolean;
-  interactive: boolean;
-  scale: number;
-  opacity: number;
-  onSelect: (id: string) => void;
+  register: (key: string, el: HTMLButtonElement | null) => void;
+  onSelect: (key: string) => void;
+  onHover: (key: string | null) => void;
 };
 
-export function OrbWork({
-  work,
-  pitch,
-  yaw,
-  facing,
+/**
+ * One tile on the orb. Position, scale, opacity, size and tab order are
+ * written every frame by OrbGallery straight to the DOM, so React only
+ * renders this when focus changes.
+ */
+export const OrbWork = memo(function OrbWork({
+  tile,
   focused,
-  interactive,
-  scale,
-  opacity,
+  register,
   onSelect,
+  onHover,
 }: OrbWorkProps) {
-  const pitchDeg = (pitch * 180) / Math.PI;
-  const yawDeg = (yaw * 180) / Math.PI;
-
   return (
     <button
+      ref={(el) => {
+        register(tile.key, el);
+        return () => register(tile.key, null);
+      }}
       type="button"
       className={`canvas-work orb-work${focused ? " is-focused" : ""}`}
-      data-work-id={work.id}
-      tabIndex={interactive || focused ? 0 : -1}
-      style={{
-        width: work.displayWidth,
-        opacity,
-        zIndex: focused ? 200 : Math.round(facing * 100),
-        pointerEvents: interactive || focused ? "auto" : "none",
-        transform: `translate(-50%, -50%) translate3d(${work.x}px, ${work.y}px, ${work.z}px) rotateY(${-yawDeg}deg) rotateX(${-pitchDeg}deg) scale(${scale})`,
-      }}
+      data-tile-key={tile.key}
       onClick={(event) => {
         event.stopPropagation();
-        onSelect(work.id);
+        onSelect(tile.key);
       }}
-      aria-label={`${work.title}, ${work.year}`}
+      onPointerEnter={(event) => {
+        if (event.pointerType === "mouse") onHover(tile.key);
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType === "mouse") onHover(null);
+      }}
+      onFocus={() => onHover(tile.key)}
+      onBlur={() => onHover(null)}
+      aria-label={`${tile.title}, ${tile.year}`}
       aria-pressed={focused}
     >
       <span className="canvas-work-plane" aria-hidden="true" />
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={work.src}
-        alt={work.title}
-        width={work.width}
-        height={work.height}
+        src={tile.src}
+        alt=""
+        width={tile.width}
+        height={tile.height}
         draggable={false}
+        decoding="async"
         className="canvas-work-image"
       />
     </button>
   );
-}
+});

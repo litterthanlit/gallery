@@ -26,11 +26,13 @@ Switch views from the header: **Field** (endless canvas) or **Orb** (pieces on a
 
 ### Orb
 
-- **Drag** to spin the sphere — it keeps a little inertia
-- **Scroll / pinch** to move closer or farther
-- **Click** a piece to bring it forward
-- **Swipe** or use arrows to hop to a neighbor
-- **Esc**, click empty space, or zoom out to spin freely again
+- The sphere is tiled with repeats of the catalog so it always reads as a full globe, and drifts slowly when left alone
+- **Drag** to spin — fling it for inertia, grab it to catch it
+- **Scroll / pinch** to move closer or farther; horizontal trackpad scroll spins
+- **Hover** a piece for its title, **click** to bring it forward at full size
+- **Swipe**, arrows, or the ‹ › buttons hop to a neighboring piece
+- **Esc**, **← Orb**, click empty space, or scroll / pinch out to return
+- Keyboard: arrows spin the orb, **Enter** opens the piece facing you, **Tab** moves between visible pieces
 
 ## Add a work
 
