@@ -17,11 +17,17 @@ Drop image files here using the same names as in `data/works.ts`.
 | `distorted-light.jpg` | Distorted Light |
 | `anarchy.jpg` | Anarchy |
 | `compulsive-panic.jpeg` | Compulsive Panic |
-| `current-obsession.jpeg` | Current Obsession |
+| `current-obsession-landscape.jpg` | Current Obsession |
 | `untitled-artwork-2.jpg` | Untitled Artwork 2 |
 | `signal-in-the-static.jpg` | Signal in the Static |
 | `buzz.jpg` | Buzz |
 | `litopia-poster.jpg` + `litopia.mp4` + `litopia.webm` | Litopia (poster + motion) |
+| `disc-poster.jpg` + `disc.mp4` + `disc.webm` | Disc (poster + motion) |
+| `untitled-iii.jpg` | Untitled III |
+| `untitled-iv.jpg` | Untitled IV |
+| `reaching-my-self-destruction.jpg` | Reaching My Self-Destruction |
+| `chat-poster.jpg` + `chat.mp4` + `chat.webm` | chat (poster + motion) |
+| `tapes-poster.jpg` + `tapes.mp4` + `tapes.webm` | tapes (poster + motion) |
 
 Preferred: JPG or WebP, ~1600–2400px on the long edge.
 
@@ -41,6 +47,10 @@ ffmpeg -i piece.gif -c:v libvpx-vp9 -crf 36 -b:v 0 -row-mt 1 \
 # Poster: pick a representative frame (N), not just the first one.
 ffmpeg -i piece.gif -vf "select='eq(n,N)'" -fps_mode vfr -frames:v 1 -q:v 1 piece.jpg
 ```
+
+From a video (MP4/MOV) instead of a GIF, the same commands work with the video
+as input; add `-vf "scale=1600:-2"` to cap the long edge at 1600px, and use
+`-sseof -0.3 -i piece.mp4 -update 1` to take the last frame as the poster.
 
 Width and height must be even for H.264 (add `-vf "crop=trunc(iw/2)*2:trunc(ih/2)*2"` if not).
 Until a file is present, the gallery shows a quiet title placeholder.

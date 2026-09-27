@@ -36,21 +36,128 @@ export type FieldLayout = {
   columns: ColumnTemplate[];
 };
 
+/**
+ * Minimum edge-to-edge vertical gap (world units) between two copies of the
+ * same work, indexed by how many columns apart they are. Neighbors need the
+ * most room so the same piece never sits side by side like a mirror.
+ */
+const TWIN_GAP = [0, 1100, 600, 250];
+
+/**
+ * Columns start from one shared order, each shifted by 2/7 of a period from
+ * its neighbor: that spreads every work's copies evenly around the cycle, so
+ * the spacing rule holds by construction. Random swaps inside each column are
+ * then kept only when no spacing rule breaks and the column doesn't gain
+ * "A above B" pairs from the columns beside it, so every column ends up with
+ * its own order instead of echoing its neighbors diagonally.
+ */
+const COLUMN_PHASE = 2 / TEMPLATE_COLUMNS;
+const VARIETY_ATTEMPTS = 4000;
+
+function heightOf(work: Work): number {
+  return Math.round((COLUMN_WIDTH * work.height) / work.width);
+}
+
+function stack(order: Work[], offset: number): ColumnTemplate {
+  const tops: number[] = [];
+  const heights: number[] = [];
+  let y = 0;
+  for (const work of order) {
+    const height = heightOf(work);
+    tops.push(y);
+    heights.push(height);
+    y += height + GUTTER;
+  }
+  return { works: order, tops, heights, period: y, offset };
+}
+
 export function createFieldLayout(catalog: Work[]): FieldLayout {
+  // Everything below works on catalog indices and typed arrays: this runs
+  // thousands of trials when the Field first opens, so it has to be cheap.
+  const n = catalog.length;
+  const count = TEMPLATE_COLUMNS;
   const rand = createRng(SEED);
-  const columns = Array.from({ length: TEMPLATE_COLUMNS }, (_, index) => {
-    const order = shuffleInPlace([...catalog], createRng(SEED + index * 7919));
-    const tops: number[] = [];
-    const heights: number[] = [];
+  const height = Float64Array.from(catalog, heightOf);
+  const period = height.reduce((sum, h) => sum + h + GUTTER, 0);
+  const base = shuffleInPlace(
+    Array.from({ length: n }, (_, i) => i),
+    createRng(SEED + 7919),
+  );
+  const start = -rand() * period;
+  const offsets = Array.from({ length: count }, (_, t) => start - t * COLUMN_PHASE * period);
+  const orders = Array.from({ length: count }, () => [...base]);
+
+  // center[t][work] — each work's center in column t, within one period.
+  const centersFor = (order: number[], offset: number, out: Float64Array) => {
     let y = 0;
     for (const work of order) {
-      const height = Math.round((COLUMN_WIDTH * work.height) / work.width);
-      tops.push(y);
-      heights.push(height);
-      y += height + GUTTER;
+      out[work] = mod(offset + y + height[work]! / 2, period);
+      y += height[work]! + GUTTER;
     }
-    return { works: order, tops, heights, period: y, offset: -rand() * y };
-  });
+    return out;
+  };
+  const center = orders.map((order, t) => centersFor(order, offsets[t]!, new Float64Array(n)));
+
+  // below[t][a * n + b] = 1 when work b sits directly under work a in column t.
+  const belowFor = (order: number[], out: Uint8Array) => {
+    out.fill(0);
+    for (let i = 0; i < n; i++) out[order[i]! * n + order[(i + 1) % n]!] = 1;
+    return out;
+  };
+  const below = orders.map((order) => belowFor(order, new Uint8Array(n * n)));
+
+  /** Does column t with these centers keep every copy far enough apart? */
+  const spaced = (t: number, mine: Float64Array) => {
+    for (let k = 1; k < TWIN_GAP.length; k++) {
+      const gap = TWIN_GAP[k]!;
+      const left = center[mod(t - k, count)]!;
+      const right = center[mod(t + k, count)]!;
+      for (let work = 0; work < n; work++) {
+        for (const other of [left[work]!, right[work]!]) {
+          const along = Math.abs(mine[work]! - other);
+          if (Math.min(along, period - along) - height[work]! < gap) return false;
+        }
+      }
+    }
+    return true;
+  };
+
+  /** How many of column t's vertical pairs also appear beside it. */
+  const echoes = (t: number, order: number[]) => {
+    const left = below[mod(t - 1, count)]!;
+    const right = below[mod(t + 1, count)]!;
+    let total = 0;
+    for (let i = 0; i < n; i++) {
+      const pair = order[i]! * n + order[(i + 1) % n]!;
+      total += left[pair]! + right[pair]!;
+    }
+    return total;
+  };
+
+  const trialCenters = new Float64Array(n);
+  for (let attempt = 0; attempt < VARIETY_ATTEMPTS; attempt++) {
+    const t = attempt % count;
+    // Mostly near swaps: they disturb fewer positions, so more survive.
+    const i = Math.floor(rand() * n);
+    const reach = 1 + Math.floor(rand() * (rand() < 0.7 ? 3 : n - 1));
+    const j = (i + reach) % n;
+    const order = orders[t]!;
+    const before = echoes(t, order);
+    [order[i], order[j]] = [order[j]!, order[i]!];
+    if (spaced(t, centersFor(order, offsets[t]!, trialCenters)) && echoes(t, order) <= before) {
+      center[t]!.set(trialCenters);
+      belowFor(order, below[t]!);
+    } else {
+      [order[i], order[j]] = [order[j]!, order[i]!];
+    }
+  }
+
+  const columns = orders.map((order, t) =>
+    stack(
+      order.map((index) => catalog[index]!),
+      offsets[t]!,
+    ),
+  );
   return { catalog, columns };
 }
 
