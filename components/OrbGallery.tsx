@@ -95,7 +95,14 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
-export function OrbGallery() {
+type OrbGalleryProps = {
+  /** Work id from the URL to open (null = overview). */
+  requestedWork: string | null;
+  /** Called with the open work's id (or null) whenever focus changes here. */
+  onFocusChange: (workId: string | null) => void;
+};
+
+export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const rigRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -141,6 +148,13 @@ export function OrbGallery() {
   const suppressClickRef = useRef(false);
   const wheelNavAtRef = useRef(0);
   const wheelExitRef = useRef({ total: 0, at: 0 });
+  const onFocusChangeRef = useRef(onFocusChange);
+  const focusTileRef = useRef<(key: string) => void>(() => {});
+  const unfocusRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    onFocusChangeRef.current = onFocusChange;
+  }, [onFocusChange]);
 
   useEffect(() => {
     tilesRef.current = tiles;
@@ -148,6 +162,27 @@ export function OrbGallery() {
     if (viewport) viewportSizeRef.current = viewport;
     dirtyRef.current = true;
   }, [radius, tiles, viewport]);
+
+  // Follow the URL: open the requested work (its copy nearest the front), or
+  // return to the overview when it's cleared (e.g. the Back button).
+  useEffect(() => {
+    if (tiles.length === 0) return;
+    const current = focusedKeyRef.current
+      ? tiles.find((tile) => tile.key === focusedKeyRef.current)?.id ?? null
+      : null;
+    if (current === requestedWork) return;
+    if (!requestedWork) {
+      unfocusRef.current();
+      return;
+    }
+    const { pitch, yaw } = poseRef.current;
+    const copy = frontTile(
+      tiles.filter((tile) => tile.id === requestedWork),
+      pitch,
+      yaw,
+    );
+    if (copy) focusTileRef.current(copy.key);
+  }, [requestedWork, tiles]);
 
   const markInteraction = useCallback(() => {
     lastInteractionRef.current = performance.now();
@@ -204,6 +239,7 @@ export function OrbGallery() {
       focusedKeyRef.current = key;
       setFocusedKey(key);
       setHintVisible(false);
+      onFocusChangeRef.current(tile.id);
       markInteraction();
       animateTo(
         { ...target, dolly: focusDolly(radiusRef.current) },
@@ -218,10 +254,16 @@ export function OrbGallery() {
     if (focusedKeyRef.current === null) return;
     focusedKeyRef.current = null;
     setFocusedKey(null);
+    onFocusChangeRef.current(null);
     markInteraction();
     const current = poseRef.current;
     animateTo({ ...current, dolly: 0 }, null, UNFOCUS_DURATION);
   }, [animateTo, markInteraction]);
+
+  useEffect(() => {
+    focusTileRef.current = focusTile;
+    unfocusRef.current = unfocus;
+  }, [focusTile, unfocus]);
 
   const hop = useCallback(
     (direction: NavDirection) => {

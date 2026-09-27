@@ -33,6 +33,7 @@ import {
   createTileTemplate,
   gatherVisibleInstances,
   instancesForChunk,
+  makeInstanceId,
   parseInstanceId,
   type MapInstance,
 } from "@/lib/infiniteMap";
@@ -79,7 +80,17 @@ function resolveInstance(
   );
 }
 
-export function CanvasGallery() {
+type CanvasGalleryProps = {
+  /** Work id from the URL to open (null = overview). */
+  requestedWork: string | null;
+  /** Called with the open work's id (or null) whenever focus changes here. */
+  onFocusChange: (workId: string | null) => void;
+};
+
+export function CanvasGallery({
+  requestedWork,
+  onFocusChange,
+}: CanvasGalleryProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const tile = useMemo(() => createTileTemplate(works), []);
 
@@ -133,6 +144,11 @@ export function CanvasGallery() {
   const wheelNavAt = useRef(0);
   const magnetCooldownUntil = useRef(0);
   const focusScaleRef = useRef(1);
+  const onFocusChangeRef = useRef(onFocusChange);
+
+  useEffect(() => {
+    onFocusChangeRef.current = onFocusChange;
+  }, [onFocusChange]);
 
   useEffect(() => {
     cameraRef.current = camera;
@@ -319,6 +335,7 @@ export function CanvasGallery() {
     magnetCooldownUntil.current = performance.now() + MAGNET_COOLDOWN_MS;
     setMode("overview");
     setFocusedId(null);
+    onFocusChangeRef.current(null);
     animateTo(target);
   }, [animateTo, tile.homeBounds, size]);
 
@@ -340,6 +357,7 @@ export function CanvasGallery() {
       setMode("focused");
       setFocusedId(id);
       setHintVisible(false);
+      onFocusChangeRef.current(parseInstanceId(id)?.workId ?? null);
       animateTo(target, 560);
     },
     [animateTo, size, workById],
@@ -392,6 +410,7 @@ export function CanvasGallery() {
         magnetCooldownUntil.current = performance.now() + MAGNET_COOLDOWN_MS;
         setMode("overview");
         setFocusedId(null);
+        onFocusChangeRef.current(null);
       }
     },
     [size, workById],
@@ -461,6 +480,44 @@ export function CanvasGallery() {
     observer.observe(el);
     return () => observer.disconnect();
   }, [tile.homeBounds]);
+
+  // Follow the URL: open the requested work (its copy nearest the middle of
+  // the screen, else the home one), or fit back out when it's cleared.
+  const followRequestedWork = useEffectEvent(() => {
+    const currentId = focusedIdRef.current;
+    const current = currentId ? parseInstanceId(currentId)?.workId ?? null : null;
+    if (current === requestedWork) return;
+    if (!requestedWork) {
+      if (modeRef.current === "focused") fitAll();
+      return;
+    }
+    const { width, height } = size;
+    const cam = cameraRef.current;
+    const centerX = (width / 2 - cam.x) / cam.scale;
+    const centerY = (height / 2 - cam.y) / cam.scale;
+    let bestId = makeInstanceId(requestedWork, 0, 0);
+    let bestDistance = Infinity;
+    for (const work of livePlaced) {
+      if (parseInstanceId(work.id)?.workId !== requestedWork) continue;
+      const distance = Math.hypot(
+        work.x + work.displayWidth / 2 - centerX,
+        work.y + work.displayHeight / 2 - centerY,
+      );
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestId = work.id;
+      }
+    }
+    focusWork(bestId);
+  });
+
+  const measured = viewport !== null;
+  useEffect(() => {
+    if (!measured) return;
+    // Next frame, so a deep link paints the field first and then flies in.
+    const frame = requestAnimationFrame(() => followRequestedWork());
+    return () => cancelAnimationFrame(frame);
+  }, [measured, requestedWork]);
 
   const onKeyNavigate = useEffectEvent((event: KeyboardEvent) => {
     if (event.key === "Escape") {

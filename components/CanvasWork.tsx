@@ -75,6 +75,9 @@ export function CanvasWork({
           tileSizes={`${Math.ceil(work.displayWidth)}px`}
           detailSizes="(max-width: 640px) 90vw, 50vw"
           detail={focused}
+          // The field already renders only nearby chunks, so lazy loading
+          // saves nothing and can leave the largest piece on screen late.
+          loading="eager"
         />
       </button>
 

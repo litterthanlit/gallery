@@ -15,6 +15,8 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Switch views from the header: **Field** (endless canvas) or **Orb** (pieces on an invisible sphere). Direct link: `/?view=orb`.
 
+Every open piece has its own link: `/?work=litopia` or `/?view=orb&work=litopia`. Opening a piece adds a history entry, so the browser's **Back** closes it; hopping between pieces updates the link in place, and switching views keeps the open piece.
+
 ### Field
 
 - **Pan** through an endless field of works — the map keeps going
@@ -33,6 +35,12 @@ Switch views from the header: **Field** (endless canvas) or **Orb** (pieces on a
 - **Swipe**, arrows, or the ‹ › buttons hop to a neighboring piece
 - **Esc**, **← Orb**, click empty space, or scroll / pinch out to return
 - Keyboard: arrows spin the orb, **Enter** opens the piece facing you, **Tab** moves between visible pieces
+
+## Link previews
+
+Shared links unfurl with a generated card: `/og` for the gallery and `/og?work=<id>` for a single piece (the artwork, title, year and its number in the catalog). Cards are rendered on demand by [`app/og/route.tsx`](app/og/route.tsx) and cached for a week.
+
+Previews need an absolute URL. On Vercel it's picked up automatically; for a custom domain set `NEXT_PUBLIC_SITE_URL` (e.g. `https://art.litt.design`).
 
 ## Add a work
 
