@@ -840,6 +840,22 @@ export function CanvasGallery({
     focusWork(id);
   };
 
+  // Stable identities for the memoized pieces; the latest handlers are read
+  // through a ref so pieces don't re-render when these closures change.
+  const handlersRef = useRef({ select: onSelectWork, grab: onGrabWork });
+  useEffect(() => {
+    handlersRef.current = { select: onSelectWork, grab: onGrabWork };
+  });
+  const selectWork = useCallback(
+    (id: string) => handlersRef.current.select(id),
+    [],
+  );
+  const grabWork = useCallback(
+    (id: string, event: React.PointerEvent<HTMLButtonElement>) =>
+      handlersRef.current.grab(id, event),
+    [],
+  );
+
   const onDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
     if (target.closest(".canvas-work")) return;
@@ -922,8 +938,11 @@ export function CanvasGallery({
             className="canvas-world"
             style={{ transform: cameraTransform(camera) }}
           >
-            {livePlaced.map((work) => {
+            {/* Stable (cached) instances; live positions come from `poses`. */}
+            {activeInstances.map((work) => {
               const pose = poses[work.id] ?? { x: work.x, y: work.y, angle: 0 };
+              const focused = work.id === focusedId;
+              const chunk = parseInstanceId(work.id);
               return (
                 <CanvasWork
                   key={work.id}
@@ -931,11 +950,17 @@ export function CanvasGallery({
                   x={pose.x}
                   y={pose.y}
                   angle={pose.angle}
-                  focused={work.id === focusedId}
+                  focused={focused}
                   dragging={work.id === draggingId}
-                  cameraScale={camera.scale}
-                  onSelect={onSelectWork}
-                  onGrab={onGrabWork}
+                  cameraScale={focused ? camera.scale : 1}
+                  // The home cluster is what's on screen on arrival.
+                  loading={
+                    chunk && chunk.chunkX === 0 && chunk.chunkY === 0
+                      ? "eager"
+                      : "lazy"
+                  }
+                  onSelect={selectWork}
+                  onGrab={grabWork}
                 />
               );
             })}

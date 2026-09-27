@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { WorkImage } from "@/components/WorkImage";
 import type { PlacedWork } from "@/lib/canvasLayout";
 
@@ -10,8 +11,14 @@ type CanvasWorkProps = {
   angle: number;
   focused: boolean;
   dragging: boolean;
-  /** Camera scale — used to keep the focus label readable on screen. */
+  /**
+   * Camera scale, for keeping the focus label a constant size on screen.
+   * Only the focused piece needs it; pass 1 otherwise so zooming doesn't
+   * re-render every piece.
+   */
   cameraScale: number;
+  /** Load the tile right away (pieces visible on arrival) or lazily. */
+  loading: "lazy" | "eager";
   onSelect: (id: string) => void;
   onGrab: (id: string, event: React.PointerEvent<HTMLButtonElement>) => void;
 };
@@ -27,7 +34,14 @@ function tiltForId(id: string): { x: number; y: number } {
   return { x, y };
 }
 
-export function CanvasWork({
+/**
+ * Tiles are requested at this share of their layout width: about 2× what the
+ * overview shows, sharp enough while zooming, and a fraction of full size. An
+ * opened piece loads its full-resolution layer on top.
+ */
+const TILE_RESOLUTION = 0.45;
+
+export const CanvasWork = memo(function CanvasWork({
   work,
   x,
   y,
@@ -35,15 +49,16 @@ export function CanvasWork({
   focused,
   dragging,
   cameraScale,
+  loading,
   onSelect,
   onGrab,
 }: CanvasWorkProps) {
   const tilt = tiltForId(work.id);
   const spinDeg = (angle * 180) / Math.PI;
   const scale = Math.max(cameraScale, 0.001);
-  // ~22px on screen, gap scales so it sits just under the piece.
-  const labelSize = 22 / scale;
-  const labelGap = 18 / scale;
+  // ~15px on screen; the gap scales so it sits just under the piece.
+  const labelSize = 15 / scale;
+  const labelGap = 16 / scale;
 
   return (
     <>
@@ -72,12 +87,10 @@ export function CanvasWork({
         <span className="canvas-work-plane" aria-hidden="true" />
         <WorkImage
           work={work}
-          tileSizes={`${Math.ceil(work.displayWidth)}px`}
+          tileSizes={`${Math.ceil(work.displayWidth * TILE_RESOLUTION)}px`}
           detailSizes="(max-width: 640px) 90vw, 50vw"
           detail={focused}
-          // The field already renders only nearby chunks, so lazy loading
-          // saves nothing and can leave the largest piece on screen late.
-          loading="eager"
+          loading={loading}
         />
       </button>
 
@@ -88,7 +101,6 @@ export function CanvasWork({
             left: x + work.displayWidth / 2,
             top: y + work.displayHeight + labelGap,
             fontSize: labelSize,
-            maxWidth: work.displayWidth * 1.15,
           }}
           aria-hidden="true"
         >
@@ -98,4 +110,4 @@ export function CanvasWork({
       ) : null}
     </>
   );
-}
+});

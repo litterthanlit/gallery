@@ -97,8 +97,37 @@ function catalogForChunk(catalog: Work[], seed: number): Work[] {
   return kept.slice(rot).concat(kept.slice(0, rot));
 }
 
-/** Build one chunk with a unique seeded arrangement. */
+// Chunk layouts are pure functions of (catalog, chunkSize, cx, cy), so compute
+// each once. Stable objects also let React skip re-rendering unchanged pieces.
+const chunkCache = new WeakMap<Work[], Map<string, MapInstance[]>>();
+const CHUNK_CACHE_LIMIT = 256;
+
+/** Build one chunk with a unique seeded arrangement (memoized). */
 export function instancesForChunk(
+  chunkX: number,
+  chunkY: number,
+  catalog: Work[],
+  chunkSize: number,
+): MapInstance[] {
+  let byKey = chunkCache.get(catalog);
+  if (!byKey) {
+    byKey = new Map();
+    chunkCache.set(catalog, byKey);
+  }
+  const key = `${chunkSize}:${chunkX}:${chunkY}`;
+  const cached = byKey.get(key);
+  if (cached) return cached;
+  const built = buildChunk(chunkX, chunkY, catalog, chunkSize);
+  // Wandering far visits unbounded chunks; drop the oldest past a cap.
+  if (byKey.size >= CHUNK_CACHE_LIMIT) {
+    const oldest = byKey.keys().next().value;
+    if (oldest !== undefined) byKey.delete(oldest);
+  }
+  byKey.set(key, built);
+  return built;
+}
+
+function buildChunk(
   chunkX: number,
   chunkY: number,
   catalog: Work[],
