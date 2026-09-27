@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { GalleryApp } from "@/components/GalleryApp";
 import type { GalleryView } from "@/components/GalleryHeader";
 import { works } from "@/data/works";
+import { withBase } from "@/lib/basePath";
 
 type SearchParams = Promise<{
   view?: string | string[];
@@ -25,7 +26,7 @@ export async function generateMetadata({
   const description =
     work.note ?? `${work.title} (${work.year}) — abstract work by Nick / litt.design.`;
   const image = {
-    url: `/og?work=${encodeURIComponent(work.id)}`,
+    url: withBase(`/og?work=${encodeURIComponent(work.id)}`),
     width: 1200,
     height: 630,
     alt: `${work.title}, ${work.year}`,

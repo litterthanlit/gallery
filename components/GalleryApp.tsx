@@ -6,11 +6,13 @@ import { FieldGallery } from "@/components/FieldGallery";
 import { GalleryHeader, type GalleryView } from "@/components/GalleryHeader";
 import { OrbGallery } from "@/components/OrbGallery";
 import { works } from "@/data/works";
+import { withBase } from "@/lib/basePath";
 
 type GalleryAppProps = {
   view: GalleryView;
 };
 
+// Router calls add the base path themselves; History API calls need withBase.
 function urlFor(pathname: string, params: URLSearchParams): string {
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;
@@ -61,13 +63,13 @@ export function GalleryApp({ view }: GalleryAppProps) {
       const url = urlFor(pathname, params);
 
       if (workId && !current) {
-        window.history.pushState(null, "", url);
+        window.history.pushState(null, "", withBase(url));
         pushedRef.current = true;
       } else if (!workId && pushedRef.current) {
         pushedRef.current = false;
         window.history.back();
       } else {
-        window.history.replaceState(null, "", url);
+        window.history.replaceState(null, "", withBase(url));
       }
     },
     [pathname],
