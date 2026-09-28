@@ -363,7 +363,6 @@ body::before {
   letter-spacing: 0.02em;
   cursor: pointer;
   backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   transform: translateX(-50%);
   transition: color 0.2s ease, background-color 0.2s ease;
   animation: canvas-hint-in 0.45s ease both;
@@ -685,13 +684,189 @@ body::before {
   }
 }
 
+/* The Lens: an endless grid under a fish-eye. Tile transforms are written
+   every frame by LensGallery, so nothing here transitions them. */
+.lens-viewport {
+  z-index: 0;
+  isolation: isolate;
+  perspective: none;
+  cursor: default;
+  outline: none;
+}
+
+.lens-viewport.is-panning {
+  cursor: grabbing;
+}
+
+.lens-world {
+  position: absolute;
+  inset: 0;
+  animation: canvas-world-in 0.6s ease both;
+}
+
+.lens-tile {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-soft);
+  line-height: 0;
+  cursor: zoom-in;
+  appearance: none;
+  -webkit-appearance: none;
+  transform-origin: center center;
+  will-change: transform;
+  box-shadow:
+    0 0 0 1px rgb(26 25 23 / 0.05),
+    0 4px 14px rgb(26 25 23 / 0.1);
+}
+
+.lens-tile .canvas-work-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.lens-tile:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+
+/* A faint glass rim marking the lens. */
+.lens-glass {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  will-change: transform, opacity;
+  background: radial-gradient(
+    closest-side,
+    rgb(255 255 255 / 0.28) 0%,
+    rgb(255 255 255 / 0.12) 62%,
+    transparent 100%
+  );
+}
+
+.lens-label {
+  z-index: 50;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(10px);
+  transition: opacity 0.2s ease;
+}
+
+.lens-label .canvas-work-name-title:empty + .canvas-work-name-year {
+  display: none;
+}
+
+/* The open piece over a frosted wash of the grid. */
+.lens-viewer {
+  --lens-figure-max-w: min(88vw, 72rem);
+  --lens-figure-max-h: calc(100dvh - 15rem);
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+}
+
+@media (max-width: 639px) {
+  .lens-viewer {
+    --lens-figure-max-w: calc(100vw - 2rem);
+    --lens-figure-max-h: calc(100dvh - 17rem);
+  }
+}
+
+.lens-viewer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  backdrop-filter: blur(22px) saturate(1.15);
+  animation: lens-backdrop-in 0.45s ease both;
+}
+
+.lens-viewer.is-closing {
+  pointer-events: none;
+}
+
+@keyframes lens-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.lens-viewer-stage {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding-top: 2.5rem;
+}
+
+.lens-figure {
+  position: relative;
+  max-width: 100%;
+  line-height: 0;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+.lens-figure .canvas-work-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.lens-figure .canvas-work-image-detail {
+  border-radius: 4px;
+}
+
+.lens-figure-caption {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+  font-size: 15px;
+  color: var(--text);
+  animation: canvas-caption-in 0.45s ease both;
+}
+
+.lens-viewer.is-closing .lens-figure-caption,
+.lens-viewer.is-closing .canvas-caption,
+.lens-viewer.is-closing .orb-close,
+.lens-viewer.is-closing .canvas-focus-nav {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .canvas-hint,
   .canvas-caption,
   .canvas-work,
   .field-world,
   .field-item,
-  .orb-close {
+  .orb-close,
+  .lens-world,
+  .lens-label,
+  .lens-viewer-backdrop,
+  .lens-figure-caption {
     animation: none !important;
     transition: none !important;
   }

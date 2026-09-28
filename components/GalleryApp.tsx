@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { FieldGallery } from "@/components/FieldGallery";
 import { GalleryHeader, type GalleryView } from "@/components/GalleryHeader";
+import { LensGallery } from "@/components/LensGallery";
 import { OrbGallery } from "@/components/OrbGallery";
 import { works } from "@/data/works";
 import { withBase } from "@/lib/basePath";
@@ -19,7 +20,8 @@ function urlFor(pathname: string, params: URLSearchParams): string {
 }
 
 /**
- * Owns the URL: the Orb is the default, `?view=field` picks the Field, and
+ * Owns the URL: the Orb is the default, `?view=field` / `?view=lens` pick the
+ * Field or the Lens, and
  * `?work=<id>` names the open piece, so any piece can be linked to and Back
  * closes it.
  */
@@ -79,8 +81,8 @@ export function GalleryApp({ view }: GalleryAppProps) {
     if (next === view) return;
     // Keep the open piece when switching views.
     const params = new URLSearchParams(window.location.search);
-    if (next === "field") params.set("view", "field");
-    else params.delete("view");
+    if (next === "orb") params.delete("view");
+    else params.set("view", next);
     pushedRef.current = false;
     router.replace(urlFor(pathname, params), { scroll: false });
   };
@@ -90,6 +92,8 @@ export function GalleryApp({ view }: GalleryAppProps) {
       <GalleryHeader view={view} onViewChange={onViewChange} />
       {view === "orb" ? (
         <OrbGallery requestedWork={requestedWork} onFocusChange={onFocusChange} />
+      ) : view === "lens" ? (
+        <LensGallery requestedWork={requestedWork} onFocusChange={onFocusChange} />
       ) : (
         <FieldGallery requestedWork={requestedWork} onFocusChange={onFocusChange} />
       )}
