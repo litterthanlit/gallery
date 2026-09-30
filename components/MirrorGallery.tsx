@@ -12,14 +12,14 @@ import { WorkImage } from "@/components/WorkImage";
 import { works, type Work } from "@/data/works";
 import { lerp } from "@/lib/camera";
 import {
-  drawReflection,
+  drawWalls,
   mirrorMetrics,
   mod,
-  REFLECTION_BLEED,
   slidePose,
   slideSize,
   wrappedOffset,
   type MirrorMetrics,
+  type WallLayer,
 } from "@/lib/mirrorLayout";
 
 type MirrorGalleryProps = {
@@ -31,20 +31,15 @@ type MirrorGalleryProps = {
 
 type Viewport = { width: number; height: number };
 
-type SlideParts = {
-  root: HTMLDivElement;
-  left: HTMLCanvasElement;
-  right: HTMLCanvasElement;
-  /** Last parameters each panel was painted with, to skip identical frames. */
-  drawn: [string, string];
-};
+type SlideParts = { root: HTMLDivElement };
 
 const SETTLE_SPEED = 9;
 const DRAG_THRESHOLD = 5;
 const WHEEL_SETTLE_MS = 140;
 /** Slides mounted on either side of the middle one. */
 const REACH = 3;
-const BASE_DEPTH = 1.3;
+/** How many times the walls fold the piece at rest. */
+const BASE_DEPTH = 1.6;
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -56,6 +51,39 @@ function isTypingTarget(target: EventTarget | null): boolean {
     (target.isContentEditable ||
       ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
   );
+}
+
+/** Longest edge of the copy the walls sample from; they're soft anyway. */
+const WALL_SOURCE_SIZE = 320;
+
+/**
+ * A small copy of `source` for the walls to sample. Hundreds of strips a
+ * frame from a full-size image is slow; from this it's nearly free. Video
+ * copies refresh every call; stills are cached per piece and quality.
+ */
+function wallSource(
+  cache: Map<string, HTMLCanvasElement>,
+  key: string,
+  source: CanvasImageSource,
+  width: number,
+  height: number,
+  live: boolean,
+): HTMLCanvasElement | null {
+  let copy = cache.get(key);
+  if (copy && !live) return copy;
+  const scale = Math.min(1, WALL_SOURCE_SIZE / Math.max(width, height));
+  const w = Math.max(1, Math.round(width * scale));
+  const h = Math.max(1, Math.round(height * scale));
+  if (!copy) {
+    copy = document.createElement("canvas");
+    cache.set(key, copy);
+  }
+  if (copy.width !== w) copy.width = w;
+  if (copy.height !== h) copy.height = h;
+  const ctx = copy.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(source, 0, 0, w, h);
+  return copy;
 }
 
 /** The sharpest thing on screen for this piece: the detail layer once loaded, else the tile. */
@@ -88,7 +116,6 @@ type MirrorSlideProps = {
   work: Work;
   index: number;
   metrics: MirrorMetrics;
-  pixelRatio: number;
   centered: boolean;
   detail: boolean;
   tileSizes: string;
@@ -97,15 +124,13 @@ type MirrorSlideProps = {
 };
 
 /**
- * One piece with its two mirror panels. MirrorGallery writes position,
- * scale and opacity and paints the panels every frame, so React only
- * renders this when the piece's role changes.
+ * One piece in the row. MirrorGallery writes its position, scale and
+ * opacity every frame, so React only renders it when its role changes.
  */
 const MirrorSlide = memo(function MirrorSlide({
   work,
   index,
   metrics,
-  pixelRatio,
   centered,
   detail,
   tileSizes,
@@ -113,17 +138,12 @@ const MirrorSlide = memo(function MirrorSlide({
   onSelect,
 }: MirrorSlideProps) {
   const { width, height } = slideSize(metrics, work.width, work.height);
-  const panel = Math.round(width * metrics.reflection);
-  const bleed = Math.round(height * REFLECTION_BLEED);
-  const canvasHeight = height + bleed * 2;
-  const leftRef = useRef<HTMLCanvasElement>(null);
-  const rightRef = useRef<HTMLCanvasElement>(null);
 
   return (
     <div
       ref={(root) => {
-        if (!root || !leftRef.current || !rightRef.current) return;
-        register(index, { root, left: leftRef.current, right: rightRef.current, drawn: ["", ""] });
+        if (!root) return;
+        register(index, { root });
         return () => register(index, null);
       }}
       className="mirror-slide"
@@ -133,17 +153,6 @@ const MirrorSlide = memo(function MirrorSlide({
       aria-label={`${index + 1} of ${works.length}: ${work.title}, ${work.year}`}
       aria-hidden={centered ? undefined : true}
     >
-      {(["left", "right"] as const).map((side) => (
-        <canvas
-          key={`${side}-${panel}-${canvasHeight}-${pixelRatio}`}
-          ref={side === "left" ? leftRef : rightRef}
-          className={`mirror-reflection is-${side}`}
-          width={Math.max(1, Math.round(panel * pixelRatio))}
-          height={Math.max(1, Math.round(canvasHeight * pixelRatio))}
-          style={{ width: panel, height: canvasHeight, top: -bleed, [side]: -panel }}
-          aria-hidden="true"
-        />
-      ))}
       <button
         type="button"
         className="mirror-piece"
@@ -171,7 +180,6 @@ export function MirrorGallery({ requestedWork, onFocusChange }: MirrorGalleryPro
   const stageRef = useRef<HTMLDivElement>(null);
 
   const [viewport, setViewport] = useState<Viewport | null>(null);
-  const [pixelRatio, setPixelRatio] = useState(1);
   const [center, setCenter] = useState(() => {
     const index = works.findIndex((work) => work.id === requestedWork);
     return index >= 0 ? index : 0;
@@ -183,6 +191,10 @@ export function MirrorGallery({ requestedWork, onFocusChange }: MirrorGalleryPro
   const metricsRef = useRef<MirrorMetrics>(mirrorMetrics(1200, 800));
   const sizeRef = useRef<Viewport>({ width: 0, height: 0 });
   const pixelRatioRef = useRef(1);
+  const wallsRef = useRef<HTMLCanvasElement>(null);
+  /** Parameters the walls were last painted with, to skip identical frames. */
+  const wallsKeyRef = useRef("");
+  const wallSourcesRef = useRef(new Map<string, HTMLCanvasElement>());
   /** Continuous position along the row, in slides (unbounded; wrapped for display). */
   const posRef = useRef(center);
   const targetRef = useRef<number | null>(null);
@@ -214,16 +226,11 @@ export function MirrorGallery({ requestedWork, onFocusChange }: MirrorGalleryPro
     onFocusChangeRef.current = onFocusChange;
   }, [onFocusChange]);
 
-  /** Place every mounted slide and repaint the mirrors that show. True if a panel still needs pixels. */
+  /** Place every mounted slide and repaint the walls. */
   const paint = useCallback((): { pending: boolean; live: boolean } => {
     const size = sizeRef.current;
     const metrics = metricsRef.current;
-    const ratio = pixelRatioRef.current;
     const pos = posRef.current;
-    const velocity = smoothVelocityRef.current;
-    const ripple = Math.min(1, Math.abs(velocity) * 0.7);
-    let pending = false;
-    let live = false;
 
     for (const [index, parts] of slidesRef.current) {
       const work = works[index]!;
@@ -233,52 +240,90 @@ export function MirrorGallery({ requestedWork, onFocusChange }: MirrorGalleryPro
       const x = size.width / 2 + pose.x - width / 2;
       const y = metrics.centerY - height / 2;
       parts.root.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) scale(${pose.scale.toFixed(4)})`;
-      parts.root.style.opacity = pose.opacity.toFixed(3);
+      // Pieces live inside the room: they dissolve as they near a side wall.
+      const centerX = size.width / 2 + pose.x;
+      const clearance = Math.min(centerX, size.width - centerX) - metrics.wallX;
+      const reach = (width * pose.scale) / 2 + metrics.wallX * 0.5;
+      const inRoom = Math.max(0, Math.min(1, clearance / reach));
+      parts.root.style.opacity = (pose.opacity * inRoom * inRoom * (3 - 2 * inRoom)).toFixed(3);
       parts.root.style.zIndex = String(100 - Math.round(Math.abs(offset) * 10));
-      parts.left.style.opacity = pose.reflection.toFixed(3);
-      parts.right.style.opacity = pose.reflection.toFixed(3);
-      if (pose.reflection < 0.01) continue;
+    }
 
-      const found = reflectionSource(parts.root);
+    const canvas = wallsRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx || size.width === 0) return { pending: false, live: false };
+
+    // The walls reflect the piece in the middle; between two, both crossfade.
+    const base = Math.floor(pos);
+    const blend = pos - base;
+    const layers: WallLayer[] = [];
+    const tags: string[] = [];
+    let pending = false;
+    let live = false;
+    for (const [slot, alpha] of [
+      [0, 1],
+      [1, blend],
+    ] as const) {
+      if (alpha <= 0.004) continue;
+      const index = mod(base + slot, count);
+      const root = slidesRef.current.get(index)?.root;
+      const found = root ? reflectionSource(root) : null;
       if (!found) {
         pending = true;
         continue;
       }
       live ||= found.live;
-      const panel = Math.round(width * metrics.reflection);
-      ([-1, 1] as const).forEach((side, slot) => {
-        // Moving pushes the mirrors: deeper folds on the leading side, a
-        // shallower one trailing; the cursor tilts them the same way.
-        const depth = Math.min(
-          3.2,
-          Math.max(
-            0.9,
-            BASE_DEPTH +
-              Math.abs(velocity) * 0.5 +
-              side * velocity * 0.25 +
-              side * biasRef.current * 0.35,
-          ),
-        );
-        const refraction = { depth, ripple, phase: phaseRef.current };
-        const key = `${found.tag}|${depth.toFixed(3)}|${ripple.toFixed(3)}|${ripple > 0 ? phaseRef.current.toFixed(2) : 0}|${panel}|${ratio}`;
-        if (!found.live && parts.drawn[slot] === key) return;
-        const canvas = side === 1 ? parts.right : parts.left;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        drawReflection(
-          ctx,
-          found.source,
-          found.width,
-          found.height,
-          side,
-          width,
-          height,
-          panel,
-          ratio,
-          refraction,
-        );
-        parts.drawn[slot] = key;
+      const tag = `${index}:${found.tag}`;
+      const copy = wallSource(
+        wallSourcesRef.current,
+        tag,
+        found.source,
+        found.width,
+        found.height,
+        found.live,
+      );
+      if (!copy) continue;
+      tags.push(tag);
+      layers.push({
+        source: copy,
+        width: copy.width,
+        height: copy.height,
+        alpha,
+        offset: blend - slot,
       });
+    }
+
+    const velocity = smoothVelocityRef.current;
+    const ripple = Math.min(1, Math.abs(velocity) * 0.7);
+    // Sliding pushes the walls: deeper folds all round, leaning into the
+    // direction of travel; the cursor leans them the same way.
+    const refraction = {
+      depth: Math.min(3.4, BASE_DEPTH + Math.abs(velocity) * 0.5),
+      lean: Math.max(-1, Math.min(1, velocity * 0.3 + biasRef.current * 0.45)),
+      ripple,
+      phase: phaseRef.current,
+    };
+    const key = [
+      tags.join(","),
+      pos.toFixed(4),
+      refraction.depth.toFixed(3),
+      refraction.lean.toFixed(3),
+      ripple > 0 ? `${ripple.toFixed(3)}|${refraction.phase.toFixed(2)}` : "0",
+      canvas.width,
+      canvas.height,
+    ].join("|");
+    if (live || key !== wallsKeyRef.current) {
+      wallsKeyRef.current = key;
+      drawWalls(
+        ctx,
+        layers,
+        size.width,
+        size.height,
+        metrics.wallX,
+        metrics.wallY,
+        pixelRatioRef.current,
+        refraction,
+      );
     }
     return { pending, live };
   }, [count]);
@@ -406,11 +451,17 @@ export function MirrorGallery({ requestedWork, onFocusChange }: MirrorGalleryPro
       if (size.width < 40 || size.height < 40) return;
       sizeRef.current = size;
       metricsRef.current = mirrorMetrics(size.width, size.height);
-      const ratio = Math.min(2, window.devicePixelRatio || 1);
+      // Walls are painted at half resolution: upscaling softens them like a
+      // blur would, without a full-screen filter pass every frame.
+      const ratio = 0.5;
       pixelRatioRef.current = ratio;
-      setPixelRatio(ratio);
+      const canvas = wallsRef.current;
+      if (canvas) {
+        canvas.width = Math.round(size.width * ratio);
+        canvas.height = Math.round(size.height * ratio);
+      }
+      wallsKeyRef.current = "";
       setViewport(size);
-      for (const parts of slidesRef.current.values()) parts.drawn = ["", ""];
       kick();
     });
     observer.observe(el);
@@ -588,7 +639,17 @@ export function MirrorGallery({ requestedWork, onFocusChange }: MirrorGalleryPro
         role="region"
         aria-roledescription="carousel"
         aria-label="Art mirror"
+        style={
+          metrics
+            ? ({
+                "--wall-x": `${metrics.wallX}px`,
+                "--wall-y": `${metrics.wallY}px`,
+              } as React.CSSProperties)
+            : undefined
+        }
       >
+        <canvas ref={wallsRef} className="mirror-walls" aria-hidden="true" />
+        <div className="mirror-row">
         {metrics
           ? mounted.map((index) => (
               <MirrorSlide
@@ -596,7 +657,6 @@ export function MirrorGallery({ requestedWork, onFocusChange }: MirrorGalleryPro
                 work={works[index]!}
                 index={index}
                 metrics={metrics}
-                pixelRatio={pixelRatio}
                 centered={index === center}
                 detail={index === center && settled}
                 tileSizes={tileSizes}
@@ -605,6 +665,7 @@ export function MirrorGallery({ requestedWork, onFocusChange }: MirrorGalleryPro
               />
             ))
           : null}
+        </div>
       </div>
 
       {metrics ? (
