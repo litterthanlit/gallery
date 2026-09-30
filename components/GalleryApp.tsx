@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { FieldGallery } from "@/components/FieldGallery";
 import { GalleryHeader, type GalleryView } from "@/components/GalleryHeader";
-import { LensGallery } from "@/components/LensGallery";
+import { MirrorGallery } from "@/components/MirrorGallery";
 import { OrbGallery } from "@/components/OrbGallery";
 import { works } from "@/data/works";
 import { withBase } from "@/lib/basePath";
@@ -20,8 +20,8 @@ function urlFor(pathname: string, params: URLSearchParams): string {
 }
 
 /**
- * Owns the URL: the Orb is the default, `?view=field` / `?view=lens` pick the
- * Field or the Lens, and
+ * Owns the URL: the Orb is the default, `?view=field` / `?view=mirror` pick the
+ * Field or the Mirror, and
  * `?work=<id>` names the open piece, so any piece can be linked to and Back
  * closes it.
  */
@@ -92,8 +92,8 @@ export function GalleryApp({ view }: GalleryAppProps) {
       <GalleryHeader view={view} onViewChange={onViewChange} />
       {view === "orb" ? (
         <OrbGallery requestedWork={requestedWork} onFocusChange={onFocusChange} />
-      ) : view === "lens" ? (
-        <LensGallery requestedWork={requestedWork} onFocusChange={onFocusChange} />
+      ) : view === "mirror" ? (
+        <MirrorGallery requestedWork={requestedWork} onFocusChange={onFocusChange} />
       ) : (
         <FieldGallery requestedWork={requestedWork} onFocusChange={onFocusChange} />
       )}

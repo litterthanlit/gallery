@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { withBase } from "@/lib/basePath";
 
-export type GalleryView = "field" | "orb" | "lens";
+export type GalleryView = "field" | "orb" | "mirror";
 
 type GalleryHeaderProps = {
   view: GalleryView;
@@ -56,11 +56,11 @@ export function GalleryHeader({ view, onViewChange }: GalleryHeaderProps) {
         <button
           type="button"
           role="tab"
-          aria-selected={view === "lens"}
-          className={`gallery-view-btn${view === "lens" ? " is-active" : ""}`}
-          onClick={() => onViewChange("lens")}
+          aria-selected={view === "mirror"}
+          className={`gallery-view-btn${view === "mirror" ? " is-active" : ""}`}
+          onClick={() => onViewChange("mirror")}
         >
-          Lens
+          Mirror
         </button>
       </div>
 

@@ -45,6 +45,6 @@ export default async function Home({
   searchParams: SearchParams;
 }) {
   const value = first((await searchParams).view);
-  const view: GalleryView = value === "field" || value === "lens" ? value : "orb";
+  const view: GalleryView = value === "field" || value === "mirror" ? value : "orb";
   return <GalleryApp view={view} />;
 }

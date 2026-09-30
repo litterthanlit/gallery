@@ -684,176 +684,238 @@ body::before {
   }
 }
 
-/* The Lens: an endless grid under a fish-eye. Tile transforms are written
-   every frame by LensGallery, so nothing here transitions them. */
-.lens-viewport {
+/* The Mirror: one row of pieces; the middle one stands between two mirrors
+   painted on canvases beside it. Transforms are written every frame by
+   MirrorGallery, so nothing here transitions them. */
+.mirror-stage {
   z-index: 0;
   isolation: isolate;
   perspective: none;
-  cursor: default;
   outline: none;
-}
-
-.lens-viewport.is-panning {
-  cursor: grabbing;
-}
-
-.lens-world {
-  position: absolute;
-  inset: 0;
   animation: canvas-world-in 0.6s ease both;
 }
 
-.lens-tile {
+.mirror-slide {
   position: absolute;
   left: 0;
   top: 0;
+  transform-origin: center center;
+  will-change: transform, opacity;
+}
+
+.mirror-piece {
+  position: relative;
+  z-index: 1;
   display: block;
+  width: 100%;
+  height: 100%;
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--bg-soft);
+  background: transparent;
   line-height: 0;
-  cursor: zoom-in;
+  cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
-  transform-origin: center center;
-  will-change: transform;
-  box-shadow:
-    0 0 0 1px rgb(26 25 23 / 0.05),
-    0 4px 14px rgb(26 25 23 / 0.1);
 }
 
-.lens-tile .canvas-work-image {
+.mirror-slide:not([aria-hidden]) .mirror-piece {
+  cursor: inherit;
+}
+
+.mirror-piece .canvas-work-image {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 0;
-  box-shadow: none;
-  background: transparent;
+  border-radius: 2px;
 }
 
-.lens-tile:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 4px;
+.mirror-piece .canvas-work-image-detail {
+  border-radius: 2px;
 }
 
-/* A faint glass rim marking the lens. */
-.lens-glass {
+.mirror-reflection {
   position: absolute;
-  left: 0;
-  top: 0;
   z-index: 0;
-  border-radius: 50%;
   pointer-events: none;
   opacity: 0;
-  will-change: transform, opacity;
-  background: radial-gradient(
-    closest-side,
-    rgb(255 255 255 / 0.28) 0%,
-    rgb(255 255 255 / 0.12) 62%,
-    transparent 100%
-  );
+  filter: blur(0.6px) saturate(1.12);
 }
 
-.lens-label {
-  z-index: 50;
-  padding: 0.3rem 0.7rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--bg) 78%, transparent);
-  backdrop-filter: blur(10px);
-  transition: opacity 0.2s ease;
+/* Bright at the seam, dissolving outward. */
+.mirror-reflection.is-right {
+  mask-image: linear-gradient(to right, #000 0%, rgb(0 0 0 / 0.55) 38%, rgb(0 0 0 / 0.18) 72%, transparent 100%);
 }
 
-.lens-label .canvas-work-name-title:empty + .canvas-work-name-year {
-  display: none;
+.mirror-reflection.is-left {
+  mask-image: linear-gradient(to left, #000 0%, rgb(0 0 0 / 0.55) 38%, rgb(0 0 0 / 0.18) 72%, transparent 100%);
 }
 
-/* The open piece over a frosted wash of the grid. */
-.lens-viewer {
-  --lens-figure-max-w: min(88vw, 72rem);
-  --lens-figure-max-h: calc(100dvh - 15rem);
-  position: fixed;
-  inset: 0;
-  z-index: 58;
-}
-
-@media (max-width: 639px) {
-  .lens-viewer {
-    --lens-figure-max-w: calc(100vw - 2rem);
-    --lens-figure-max-h: calc(100dvh - 17rem);
-  }
-}
-
-.lens-viewer-backdrop {
+/* A hairline of light where glass meets the piece. */
+.mirror-slide:not([aria-hidden])::before,
+.mirror-slide:not([aria-hidden])::after {
+  content: "";
   position: absolute;
-  inset: 0;
-  background: color-mix(in srgb, var(--bg) 84%, transparent);
-  backdrop-filter: blur(22px) saturate(1.15);
-  animation: lens-backdrop-in 0.45s ease both;
-}
-
-.lens-viewer.is-closing {
+  top: 4%;
+  bottom: 4%;
+  z-index: 2;
+  width: 1px;
   pointer-events: none;
+  background: linear-gradient(to bottom, transparent, rgb(255 255 255 / 0.7) 30%, rgb(255 255 255 / 0.7) 70%, transparent);
+  mix-blend-mode: soft-light;
 }
 
-@keyframes lens-backdrop-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+.mirror-slide::before {
+  left: 0;
 }
 
-.lens-viewer-stage {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  padding-top: 2.5rem;
+.mirror-slide::after {
+  right: 0;
 }
 
-.lens-figure {
-  position: relative;
-  max-width: 100%;
-  line-height: 0;
-  transform-origin: center center;
-  will-change: transform;
-}
-
-.lens-figure .canvas-work-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 4px;
-}
-
-.lens-figure .canvas-work-image-detail {
-  border-radius: 4px;
-}
-
-.lens-figure-caption {
+.mirror-caption {
+  position: fixed;
+  left: 50%;
+  bottom: 7.4rem;
+  z-index: 55;
   display: flex;
   align-items: baseline;
   gap: 0.6em;
   font-size: 15px;
+  white-space: nowrap;
   color: var(--text);
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: canvas-work-name-in 0.45s ease both;
+}
+
+.mirror-controls {
+  position: fixed;
+  left: 1.25rem;
+  right: 1.25rem;
+  bottom: 1.35rem;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+@media (min-width: 640px) {
+  .mirror-controls {
+    bottom: 1.75rem;
+  }
+}
+
+.mirror-note {
+  max-width: 34rem;
+  text-align: center;
   animation: canvas-caption-in 0.45s ease both;
 }
 
-.lens-viewer.is-closing .lens-figure-caption,
-.lens-viewer.is-closing .canvas-caption,
-.lens-viewer.is-closing .orb-close,
-.lens-viewer.is-closing .canvas-focus-nav {
-  opacity: 0;
-  transition: opacity 0.2s ease;
+.mirror-scrub {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: min(34rem, 100%);
+}
+
+.mirror-step {
+  margin: 0;
+  padding: 0.2rem 0.45rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.mirror-step:hover,
+.mirror-step:focus-visible {
+  color: var(--text);
+}
+
+.mirror-step:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.mirror-index {
+  min-width: 4.2rem;
+  text-align: right;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The scrubber: a hairline track, the travelled part in ink, a small dot. */
+.mirror-range {
+  --progress: 0%;
+  flex: 1;
+  height: 1.5rem;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.mirror-range::-webkit-slider-runnable-track {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    var(--text) 0 var(--progress),
+    color-mix(in srgb, var(--text) 16%, transparent) var(--progress) 100%
+  );
+}
+
+.mirror-range::-moz-range-track {
+  height: 1px;
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+}
+
+.mirror-range::-moz-range-progress {
+  height: 1px;
+  background: var(--text);
+}
+
+.mirror-range::-webkit-slider-thumb {
+  width: 11px;
+  height: 11px;
+  margin-top: -5px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text);
+  appearance: none;
+  -webkit-appearance: none;
+  transition: transform 0.2s ease;
+}
+
+.mirror-range::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text);
+}
+
+.mirror-range:hover::-webkit-slider-thumb,
+.mirror-range:focus-visible::-webkit-slider-thumb {
+  transform: scale(1.35);
+}
+
+.mirror-range:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.mirror-hint {
+  bottom: 9.6rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -863,10 +925,9 @@ body::before {
   .field-world,
   .field-item,
   .orb-close,
-  .lens-world,
-  .lens-label,
-  .lens-viewer-backdrop,
-  .lens-figure-caption {
+  .mirror-stage,
+  .mirror-caption,
+  .mirror-note {
     animation: none !important;
     transition: none !important;
   }
