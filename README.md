@@ -13,9 +13,22 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## How to explore
 
-The site opens on the **Orb** (pieces on an invisible sphere). Switch to the **Field** (an endless masonry wall) or the **Ring** (pieces standing along the rim of an invisible crater) from the header, or link to them directly: `/?view=field`, `/?view=ring`.
+The site opens on the **Ring** (pieces standing along the rim of an invisible crater). Switch to the **Orb** (pieces on an invisible sphere) or the **Field** (an endless masonry wall) from the header, or link to them directly: `/?view=orb`, `/?view=field`.
 
-Every open piece has its own link: `/?work=litopia` or `/?view=field&work=litopia`. Opening a piece adds a history entry, so the browser's **Back** closes it; hopping between pieces updates the link in place, and switching views keeps the open piece. Old `/?view=orb` links still work.
+Every open piece has its own link: `/?work=litopia` or `/?view=field&work=litopia`. Opening a piece adds a history entry, so the browser's **Back** closes it; hopping between pieces updates the link in place, and switching views keeps the open piece. Old `/?view=ring` links still work.
+
+### Ring
+
+The catalog stands in order along the rim of an invisible crater, each piece at its own height on a mountainous ridge, like a slow procession.
+
+- **Drag** sideways to turn the ring, up / down to tilt it — flings carry momentum, and it drifts when left alone
+- **Scroll / pinch** to move closer or farther; horizontal trackpad scroll turns it
+- **Click** a piece to bring it forward; the rest of the ring dims and the camera eases in
+- **Swipe**, arrows, or the ‹ › buttons step to the next or previous piece around the ring
+- **Esc**, **← Ring**, click empty space, or scroll / pinch out to return
+- Keyboard: ← → turn one piece at a time, ↑ ↓ tilt, **Enter** opens the piece in front
+
+The ridge's shape (relief height, the slow swell) lives in [`lib/ringLayout.ts`](lib/ringLayout.ts).
 
 ### Orb
 
@@ -37,19 +50,6 @@ A Cosmos-style infinite canvas with roomier gutters: equal-width columns of work
 - **Swipe**, arrows, or the ‹ › buttons hop to the neighboring piece
 - **Esc**, **← Field**, click empty space, or scroll away to return
 - Keyboard: arrows pan the wall, **Enter** opens the piece in the middle
-
-### Ring
-
-The catalog stands in order along the rim of an invisible crater, each piece at its own height on a mountainous ridge, like a slow procession.
-
-- **Drag** sideways to turn the ring, up / down to tilt it — flings carry momentum, and it drifts when left alone
-- **Scroll / pinch** to move closer or farther; horizontal trackpad scroll turns it
-- **Click** a piece to bring it forward; the rest of the ring dims and the camera eases in
-- **Swipe**, arrows, or the ‹ › buttons step to the next or previous piece around the ring
-- **Esc**, **← Ring**, click empty space, or scroll / pinch out to return
-- Keyboard: ← → turn one piece at a time, ↑ ↓ tilt, **Enter** opens the piece in front
-
-The ridge's shape (relief height, the slow swell) lives in [`lib/ringLayout.ts`](lib/ringLayout.ts).
 
 Layout constants (column width, gutter, how many columns fit) live in [`lib/fieldLayout.ts`](lib/fieldLayout.ts).
 

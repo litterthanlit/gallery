@@ -45,6 +45,7 @@ export default async function Home({
   searchParams: SearchParams;
 }) {
   const value = first((await searchParams).view);
-  const view: GalleryView = value === "field" || value === "ring" ? value : "orb";
+  // The Ring is the default; `?view=ring` links from before still land there.
+  const view: GalleryView = value === "orb" || value === "field" ? value : "ring";
   return <GalleryApp view={view} />;
 }

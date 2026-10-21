@@ -20,7 +20,7 @@ function urlFor(pathname: string, params: URLSearchParams): string {
 }
 
 /**
- * Owns the URL: the Orb is the default, `?view=field` / `?view=ring` pick the
+ * Owns the URL: the Ring is the default, `?view=orb` / `?view=field` pick the
  * other views, and
  * `?work=<id>` names the open piece, so any piece can be linked to and Back
  * closes it.
@@ -81,7 +81,7 @@ export function GalleryApp({ view }: GalleryAppProps) {
     if (next === view) return;
     // Keep the open piece when switching views.
     const params = new URLSearchParams(window.location.search);
-    if (next === "orb") params.delete("view");
+    if (next === "ring") params.delete("view");
     else params.set("view", next);
     pushedRef.current = false;
     router.replace(urlFor(pathname, params), { scroll: false });
