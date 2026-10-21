@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { withBase } from "@/lib/basePath";
 
-export type GalleryView = "field" | "orb";
+export type GalleryView = "field" | "orb" | "ring";
 
 type GalleryHeaderProps = {
   view: GalleryView;
@@ -49,6 +49,18 @@ export function GalleryHeader({ view, onViewChange }: GalleryHeaderProps) {
           onClick={() => onViewChange("field")}
         >
           Field
+        </button>
+        <span className="gallery-view-sep" aria-hidden="true">
+          ·
+        </span>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "ring"}
+          className={`gallery-view-btn${view === "ring" ? " is-active" : ""}`}
+          onClick={() => onViewChange("ring")}
+        >
+          Ring
         </button>
       </div>
 
