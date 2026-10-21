@@ -316,8 +316,8 @@ body::before {
   will-change: transform, opacity;
 }
 
-/* The Ring: contour lines on two canvases (far and near halves) with the
-   pieces layered between them by depth. Tiles are placed in 2D screen space. */
+/* The Ring: pieces on the rim of an invisible crater, placed in 2D screen
+   space and stacked by depth. */
 .ring-viewport {
   z-index: 0;
   isolation: isolate;
@@ -335,24 +335,6 @@ body::before {
 
 .ring-viewport.is-focused.is-panning {
   cursor: grabbing;
-}
-
-.ring-terrain {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  /* The canvas reads its ink from here. */
-  color: var(--text);
-  pointer-events: none;
-}
-
-.ring-terrain-far {
-  z-index: 0;
-}
-
-.ring-terrain-near {
-  z-index: 1000;
 }
 
 .canvas-work.ring-work {

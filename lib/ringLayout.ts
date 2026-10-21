@@ -2,8 +2,8 @@ import type { Work } from "@/data/works";
 import { createRng } from "@/lib/canvasLayout";
 
 /**
- * The Ring: a crater of contour lines with the works standing on its ridge.
- * World space: +X right, +Y down (heights are negative Y), +Z toward the
+ * The Ring: the works standing on the rim of an invisible crater, each at its
+ * own height along a mountainous ridge. World space: +X right, +Y down (heights are negative Y), +Z toward the
  * camera. Angle 0 on the ring faces the camera at yaw 0.
  */
 
@@ -37,27 +37,12 @@ export type RingView = {
   cy: number;
 };
 
-/** Contour rings as flat arrays, so a frame projects them without allocating. */
-export type Terrain = {
-  /** Point offsets where each ring starts (length = rings + 1). */
-  starts: Uint32Array;
-  /** Each ring's radius as a share of the ring radius. */
-  ratios: Float32Array;
-  x: Float32Array;
-  z: Float32Array;
-  /** Relief, 0…1 of the amplitude. */
-  height: Float32Array;
-};
-
 export const PITCH_MIN = 0.06;
 export const PITCH_MAX = 0.9;
 /** Relief amplitude as a share of the ring radius. */
 export const RELIEF = 0.3;
 
 const MIN_SLOTS = 16;
-const INNER_RATIO = 0.86;
-const OUTER_RATIO = 1.5;
-const POINT_SPACING = 6;
 
 export function ringRadius(viewportWidth: number, viewportHeight: number): number {
   // On phones the ring runs past the edges so the front pieces stay legible.
@@ -84,75 +69,32 @@ export function clampPitch(pitch: number): number {
   return Math.min(PITCH_MAX, Math.max(PITCH_MIN, pitch));
 }
 
-/**
- * The crater's relief at `angle`, `ratio` (radius share): a steep inner wall,
- * a long outer slope, and mountains along the rim from a few periodic waves.
- */
-function createRelief(seed: number): (angle: number, ratio: number) => number {
+/** The ridge's height at `angle`: mountains from a few periodic waves. */
+function createRelief(seed: number): (angle: number) => number {
   const rand = createRng(seed);
   const waves = Array.from({ length: 9 }, (_, i) => ({
     // Whole frequencies keep the ring seamless.
     k: 2 + i * 2 + Math.floor(rand() * 2) + (i > 5 ? i * 3 : 0),
     amp: 1 / (1 + i * 0.75),
     phase: rand() * Math.PI * 2,
-    // How fast each wave shifts from one contour to the next.
-    drift: (rand() - 0.5) * 7,
+    // Kept so the seeded sequence (and so the ridge's shape) is unchanged.
+    drift: rand(),
   }));
   const norm = waves.reduce((sum, wave) => sum + wave.amp, 0);
 
-  return (angle, ratio) => {
-    const u = ratio - 1;
-    const ridge = u < 0 ? Math.exp(-((u / 0.075) ** 2)) : Math.exp(-u / 0.16);
+  return (angle) => {
     let sum = 0;
-    for (const wave of waves) {
-      sum += wave.amp * Math.sin(wave.k * angle + wave.phase + u * wave.drift);
-    }
+    for (const wave of waves) sum += wave.amp * Math.sin(wave.k * angle + wave.phase);
     const peaks = Math.min(1, Math.max(0, 0.5 + (sum / norm) * 1.3));
-    return ridge * (0.2 + 0.8 * peaks ** 1.4);
+    return 0.2 + 0.8 * peaks ** 1.4;
   };
 }
 
 const relief = createRelief(7);
 
-export function buildTerrain(radius: number, compact: boolean): Terrain {
-  const rings = compact ? 28 : 40;
-  const ratios = new Float32Array(rings);
-  const starts = new Uint32Array(rings + 1);
-  const counts: number[] = [];
-  let total = 0;
-  for (let i = 0; i < rings; i++) {
-    // Contours bunch up near the rim and spread out over the plain.
-    const ratio = INNER_RATIO + (OUTER_RATIO - INNER_RATIO) * (i / (rings - 1)) ** 1.6;
-    ratios[i] = ratio;
-    const count = Math.round(
-      Math.min(compact ? 260 : 440, Math.max(120, (Math.PI * 2 * ratio * radius) / POINT_SPACING)),
-    );
-    starts[i] = total;
-    counts.push(count);
-    total += count;
-  }
-  starts[rings] = total;
-
-  const x = new Float32Array(total);
-  const z = new Float32Array(total);
-  const height = new Float32Array(total);
-  for (let i = 0; i < rings; i++) {
-    const ratio = ratios[i]!;
-    const count = counts[i]!;
-    const start = starts[i]!;
-    for (let j = 0; j < count; j++) {
-      const angle = (j / count) * Math.PI * 2;
-      x[start + j] = Math.sin(angle) * ratio * radius;
-      z[start + j] = Math.cos(angle) * ratio * radius;
-      height[start + j] = relief(angle, ratio);
-    }
-  }
-  return { starts, ratios, x, z, height };
-}
-
-/** A slow swell that rolls outward through the contours. */
-export function swell(ratio: number, seconds: number): number {
-  return 1 + 0.07 * Math.sin(seconds * 0.7 - (ratio - INNER_RATIO) * 9);
+/** A slow swell that lifts and lowers the ridge. */
+export function swell(seconds: number): number {
+  return 1 + 0.07 * Math.sin(seconds * 0.7 - 1.26);
 }
 
 export function placeOnRing(
@@ -184,7 +126,7 @@ export function placeOnRing(
       key: `${work.id}~${Math.floor(index / catalog.length)}`,
       index,
       angle,
-      crest: relief(angle, 1),
+      crest: relief(angle),
       tileWidth,
       focusWidth,
       aspect,

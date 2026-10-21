@@ -14,7 +14,6 @@ import { easeInOutCubic, lerp } from "@/lib/camera";
 import { directionFromDelta, type NavDirection } from "@/lib/canvasLayout";
 import { lerpAngle } from "@/lib/orbLayout";
 import {
-  buildTerrain,
   clampPitch,
   frontTile,
   placeOnRing,
@@ -28,7 +27,6 @@ import {
   type RingPose,
   type RingTile,
   type RingView,
-  type Terrain,
 } from "@/lib/ringLayout";
 
 type Viewport = { width: number; height: number };
@@ -73,8 +71,6 @@ const HOVER_LIFT = 0.08;
 const FOCUS_DIM = 0.85;
 const WHEEL_EXIT = 90;
 const PINCH_EXIT = 70;
-/** Line opacity steps, from the flat plain up to the peaks. */
-const LINE_BUCKETS = 6;
 
 function clampDolly(value: number, radius: number): number {
   return Math.min(radius * 0.55, Math.max(-radius * 0.7, value));
@@ -97,14 +93,6 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
-/** Size a canvas's backing store to its CSS box at the device pixel ratio. */
-function sizeCanvas(canvas: HTMLCanvasElement, viewport: Viewport, dpr: number) {
-  const width = Math.round(viewport.width * dpr);
-  const height = Math.round(viewport.height * dpr);
-  if (canvas.width !== width) canvas.width = width;
-  if (canvas.height !== height) canvas.height = height;
-}
-
 type RingGalleryProps = {
   /** Work id from the URL to open (null = overview). */
   requestedWork: string | null;
@@ -114,8 +102,6 @@ type RingGalleryProps = {
 
 export function RingGallery({ requestedWork, onFocusChange }: RingGalleryProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const farRef = useRef<HTMLCanvasElement>(null);
-  const nearRef = useRef<HTMLCanvasElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
 
   const [viewport, setViewport] = useState<Viewport | null>(null);
@@ -133,18 +119,11 @@ export function RingGallery({ requestedWork, onFocusChange }: RingGalleryProps) 
     () => (viewport ? placeOnRing(works, viewport.width, viewport.height) : []),
     [viewport],
   );
-  const terrain = useMemo(
-    () => (view ? buildTerrain(view.radius, compact) : null),
-    [compact, view],
-  );
 
   // Animation state lives in refs; the frame loop reads and paints it.
   const tilesRef = useRef<RingTile[]>([]);
   const viewRef = useRef<RingView | null>(null);
-  const terrainRef = useRef<Terrain | null>(null);
   const viewportSizeRef = useRef<Viewport>({ width: 0, height: 0 });
-  const dprRef = useRef(1);
-  const inkRef = useRef("#1a1917");
   const poseRef = useRef<RingPose>({ yaw: IDLE_YAW, pitch: 0.26, dolly: 0 });
   const restPitchRef = useRef(0.26);
   const dollyTargetRef = useRef(0);
@@ -184,22 +163,15 @@ export function RingGallery({ requestedWork, onFocusChange }: RingGalleryProps) 
     const first = viewRef.current === null;
     tilesRef.current = tiles;
     viewRef.current = view;
-    terrainRef.current = terrain;
     viewportSizeRef.current = viewport;
     compactRef.current = viewport.width < 640;
-    // Hairlines stay crisp at 1.5x and it halves the fill cost of a 2x canvas.
-    dprRef.current = Math.min(1.5, window.devicePixelRatio || 1);
-    for (const canvas of [farRef.current, nearRef.current]) {
-      if (canvas) sizeCanvas(canvas, viewport, dprRef.current);
-    }
-    if (farRef.current) inkRef.current = getComputedStyle(farRef.current).color;
     const pitch = restPitch(viewport.width, viewport.height);
     if (first || focusedKeyRef.current === null) {
       restPitchRef.current = pitch;
       if (first) poseRef.current = { ...poseRef.current, pitch };
     }
     dirtyRef.current = true;
-  }, [terrain, tiles, view, viewport]);
+  }, [tiles, view, viewport]);
 
   // Follow the URL: open the requested work (its copy nearest the front), or
   // return to the overview when it's cleared (e.g. the Back button).
@@ -335,72 +307,7 @@ export function RingGallery({ requestedWork, onFocusChange }: RingGalleryProps) 
     [animateTo, markInteraction],
   );
 
-  /** Draw the contour field, split at the ring's center so the near half can pass in front of far pieces. */
-  const drawTerrain = useCallback(
-    (pose: RingPose, amplitude: number, seconds: number, alpha: number) => {
-      const far = farRef.current?.getContext("2d");
-      const near = nearRef.current?.getContext("2d");
-      const terrain = terrainRef.current;
-      const view = viewRef.current;
-      if (!far || !near || !terrain || !view) return;
-
-      const { width, height } = viewportSizeRef.current;
-      const dpr = dprRef.current;
-      const layers = [far, near];
-      const lines = layers.map(() =>
-        Array.from({ length: LINE_BUCKETS }, () => new Path2D()),
-      );
-      const dots = layers.map(() => new Path2D());
-      const p = projectedRef.current;
-      const { starts, ratios, x, z, height: relief } = terrain;
-
-      for (let ring = 0; ring < ratios.length; ring++) {
-        const lift = amplitude * swell(ratios[ring]!, seconds);
-        const start = starts[ring]!;
-        const count = starts[ring + 1]! - start;
-        let lastPath: Path2D | null = null;
-        let px = 0;
-        let py = 0;
-        for (let n = 0; n <= count; n++) {
-          const index = start + (n % count);
-          const h = relief[index]!;
-          project(x[index]!, -h * lift, z[index]!, pose, view, p);
-          const layer = p.side < 0 ? 0 : 1;
-          if (n > 0) {
-            const bucket = Math.min(LINE_BUCKETS - 1, Math.floor(h * LINE_BUCKETS));
-            const path = lines[layer]![bucket]!;
-            if (path !== lastPath) path.moveTo(px, py);
-            path.lineTo(p.x, p.y);
-            lastPath = path;
-          }
-          if (n % 3 === 0 && n < count) {
-            const size = Math.min(2.4, 0.95 * p.scale);
-            dots[layer]!.rect(p.x - size / 2, p.y - size / 2, size, size);
-          }
-          px = p.x;
-          py = p.y;
-        }
-      }
-
-      layers.forEach((ctx, layer) => {
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, width, height);
-        ctx.strokeStyle = inkRef.current;
-        ctx.fillStyle = inkRef.current;
-        ctx.lineWidth = 0.7;
-        ctx.lineJoin = "round";
-        lines[layer]!.forEach((path, bucket) => {
-          ctx.globalAlpha = alpha * (0.14 + 0.66 * (bucket / (LINE_BUCKETS - 1)) ** 1.1);
-          ctx.stroke(path);
-        });
-        ctx.globalAlpha = alpha * 0.4;
-        ctx.fill(dots[layer]!);
-      });
-    },
-    [],
-  );
-
-  /** Paint the terrain and write every tile's transform straight to the DOM. Returns true while hover easing is still settling. */
+  /** Write every tile's transform straight to the DOM. Returns true while hover easing is still settling. */
   const paint = useCallback(
     (dt: number): boolean => {
       const view = viewRef.current;
@@ -421,11 +328,9 @@ export function RingGallery({ requestedWork, onFocusChange }: RingGalleryProps) 
       let dim = 0;
       for (const value of amounts.values()) dim = Math.max(dim, value);
 
-      drawTerrain(pose, amplitude, seconds, Math.min(1, intro * 1.4) * (1 - 0.6 * dim));
-
       const { width: vw, height: vh } = viewportSizeRef.current;
       const restLayoutScale = view.perspective / (view.perspective - r);
-      const crestLift = amplitude * swell(1, seconds);
+      const crestLift = amplitude * swell(seconds);
       const p = projectedRef.current;
       let hoverSettling = false;
       let titleY = 0;
@@ -479,9 +384,9 @@ export function RingGallery({ requestedWork, onFocusChange }: RingGalleryProps) 
         el.style.transform = `translate3d(${(centerX - width / 2).toFixed(2)}px, ${(centerY - height / 2).toFixed(2)}px, 0) scale(${(width / layoutWidth).toFixed(4)})`;
         el.style.opacity = opacity.toFixed(3);
 
-        // Far pieces sit under the near half of the terrain; near ones over it.
-        const depthRank = Math.max(0, Math.min(800, Math.round((p.depth / r + 2) * 150)));
-        const layer = amount > 0 ? 5000 : (p.side < 0 ? 100 : 2000) + depthRank;
+        // Nearer pieces stack over farther ones; the open piece over all.
+        const layer =
+          amount > 0 ? 5000 : Math.max(0, Math.min(800, Math.round((p.depth / r + 2) * 150)));
         if (appliedLayerRef.current.get(tile.key) !== layer) {
           appliedLayerRef.current.set(tile.key, layer);
           el.style.zIndex = String(layer);
@@ -514,7 +419,7 @@ export function RingGallery({ requestedWork, onFocusChange }: RingGalleryProps) 
 
       return hoverSettling;
     },
-    [drawTerrain],
+    [],
   );
 
   // Measure; tiles render only after this so server and client markup match.
@@ -558,7 +463,7 @@ export function RingGallery({ requestedWork, onFocusChange }: RingGalleryProps) 
       let dirty = dirtyRef.current;
       dirtyRef.current = false;
 
-      // The terrain breathes, so it repaints every frame unless motion is reduced.
+      // The pieces bob on a slow swell, so it repaints every frame unless motion is reduced.
       if (!reduced && viewRef.current) {
         clockRef.current += dt;
         dirty = true;
@@ -958,8 +863,6 @@ export function RingGallery({ requestedWork, onFocusChange }: RingGalleryProps) 
           pieces. In a piece, arrow keys move to the next or previous piece and
           Escape returns to the ring.
         </p>
-        <canvas ref={farRef} className="ring-terrain ring-terrain-far" aria-hidden="true" />
-        <canvas ref={nearRef} className="ring-terrain ring-terrain-near" aria-hidden="true" />
         {tiles.map((tile) => (
           <OrbWork
             key={tile.key}
