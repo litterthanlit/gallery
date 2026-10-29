@@ -172,6 +172,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
   const velocityRef = useRef({ pitch: 0, yaw: 0 });
   const focusAmountsRef = useRef(new Map<string, number>());
   const hoverAmountsRef = useRef(new Map<string, number>());
+  const arcAmountsRef = useRef(new Map<string, number>());
   const tweenRef = useRef<Tween | null>(null);
   const introRef = useRef(0);
   const dirtyRef = useRef(true);
@@ -344,7 +345,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
     [animateTo, markInteraction],
   );
 
-  /** Write every tile's transform straight to the DOM. Returns true while hover easing is still settling. */
+  /** Write every tile's transform straight to the DOM. Returns true while hover or hop easing is still settling. */
   const paint = useCallback((dt: number): boolean => {
     const rig = rigRef.current;
     const stage = stageRef.current;
@@ -359,13 +360,34 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
     const amounts = focusAmountsRef.current;
     const focused = focusedKeyRef.current;
     const hovered = focused === null ? hoveredKeyRef.current : null;
-    let dim = 0;
-    for (const value of amounts.values()) dim = Math.max(dim, value);
+    // Each piece is dimmed by the most open piece other than itself, so on a
+    // hop neither of the two open pieces dims the other back into bending.
+    let topKey: string | null = null;
+    let top = 0;
+    let runnerUp = 0;
+    for (const [key, value] of amounts) {
+      if (value > top) {
+        runnerUp = top;
+        top = value;
+        topKey = key;
+      } else {
+        runnerUp = Math.max(runnerUp, value);
+      }
+    }
 
     rig.style.transform = `translateZ(${dolly.toFixed(2)}px)`;
     stage.style.transform = `rotateX(${pitch.toFixed(5)}rad) rotateY(${yaw.toFixed(5)}rad) scale3d(${spread.toFixed(4)}, ${spread.toFixed(4)}, ${spread.toFixed(4)})`;
 
-    let hoverSettling = false;
+    let settling = false;
+    const approach = (eased: Map<string, number>, key: string, target: number, rate: number) => {
+      let value = eased.get(key) ?? 0;
+      if (value === target) return value;
+      value += (target - value) * Math.min(1, dt * rate);
+      if (Math.abs(target - value) < 0.002) value = target;
+      else settling = true;
+      eased.set(key, value);
+      return value;
+    };
     let titleTile: OrbTile | null = null;
     let titleWidth = 0;
     let titlePoint = { x: 0, y: 0, z: 0 };
@@ -378,18 +400,18 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       const facing = (point.z / r + 1) / 2;
       const amount = amounts.get(tile.key) ?? 0;
 
-      const hoverTarget = tile.key === hovered ? 1 : 0;
-      let hover = hoverAmountsRef.current.get(tile.key) ?? 0;
-      if (hover !== hoverTarget) {
-        hover += (hoverTarget - hover) * Math.min(1, dt * 14);
-        if (Math.abs(hoverTarget - hover) < 0.002) hover = hoverTarget;
-        else hoverSettling = true;
-        hoverAmountsRef.current.set(tile.key, hover);
-      }
+      const hover = approach(hoverAmountsRef.current, tile.key, tile.key === hovered ? 1 : 0, 14);
+      // Eased so the arc settles rather than drops when focus moves mid-hop.
+      const arc = approach(
+        arcAmountsRef.current,
+        tile.key,
+        tile.key === focused && amounts.size > 1 ? 1 : 0,
+        10,
+      );
 
       const resting = tile.tileWidth * (1 + HOVER_LIFT * hover);
       const width = lerp(resting, tile.focusWidth, amount);
-      const shade = dim - amount;
+      const shade = tile.key === topKey ? runnerUp : top;
       const fade = Math.max(0, (shade - DIM_FLATTEN) / (1 - DIM_FLATTEN));
       const restingOpacity = facingOpacity(facing) * (1 - FOCUS_DIM * fade);
       const opacity = lerp(restingOpacity, 1, amount) * Math.min(1, intro * 1.25);
@@ -421,10 +443,12 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       // incoming piece arcs higher, passing in front of the outgoing one
       // rather than through it.
       const scale = width / layoutWidth;
-      const arc = tile.key === focused && amounts.size > 1 ? Math.sin(Math.PI * amount) : 0;
       const lift =
-        r + focusRise(r) * peel + r * (HOP_ARC * arc + HOVER_RISE * hover * (1 - peel));
-      const transform = `rotateY(${tile.lon.toFixed(5)}rad) rotateX(${tile.lat.toFixed(5)}rad) translateZ(${lift.toFixed(2)}px) scale(${scale.toFixed(4)})`;
+        r +
+        focusRise(r) * peel +
+        r * (HOP_ARC * arc * Math.sin(Math.PI * amount) + HOVER_RISE * hover * (1 - peel));
+      // scale3d: the facets' depth has to shrink with the piece too.
+      const transform = `rotateY(${tile.lon.toFixed(5)}rad) rotateX(${tile.lat.toFixed(5)}rad) translateZ(${lift.toFixed(2)}px) scale3d(${scale.toFixed(4)}, ${scale.toFixed(4)}, ${scale.toFixed(4)})`;
       if (appliedTransformRef.current.get(tile.key) !== transform) {
         appliedTransformRef.current.set(tile.key, transform);
         el.style.transform = transform;
@@ -473,7 +497,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
         const y =
           vh / 2 +
           titlePoint.y * spread * scale +
-          (titleWidth / titleTile.aspect / 2) * scale +
+          (titleWidth / titleTile.aspect / 2) * spread * scale +
           22;
         const reveal = Math.min(1, Math.max(0, ((amounts.get(titleTile.key) ?? 0) - 0.6) / 0.4));
         title.style.transform = `translate3d(${x.toFixed(1)}px, ${(y + (1 - reveal) * 8).toFixed(1)}px, 0) translateX(-50%)`;
@@ -483,7 +507,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       }
     }
 
-    return hoverSettling;
+    return settling;
   }, []);
 
   // Measure; tiles render only after this so server and client markup match.
