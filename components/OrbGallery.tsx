@@ -12,11 +12,11 @@ import { works } from "@/data/works";
 import { OrbWork } from "@/components/OrbWork";
 import { easeInOutCubic, lerp } from "@/lib/camera";
 import { directionFromDelta, type NavDirection } from "@/lib/canvasLayout";
+import { createOrbRenderer, type OrbPiece, type OrbRenderer } from "@/lib/orbRenderer";
+import { toCss, toMatrix, type TransformStep } from "@/lib/transform3d";
 import {
-  bendFacet,
   clampPitch,
   FACING_POINTER_MIN,
-  facingBend,
   facingDirection,
   facingOpacity,
   findOrbNeighbor,
@@ -80,9 +80,12 @@ const HOVER_LIFT = 0.04;
 const HOVER_RISE = 0.07;
 /** Extra height, as a share of the radius, the incoming piece arcs through on a hop. */
 const HOP_ARC = 0.3;
-/** Share of the focus dim over which the other pieces flatten, before they fade. */
+/**
+ * Share of the focus dim over which an open piece flattens when another
+ * piece is opening over it, so on a hop both stay flat on their sharp images.
+ */
 const DIM_FLATTEN = 0.2;
-/** Below this the bend is invisible, so the piece swaps to its plain flat image. */
+/** Below this the bend is invisible, so an open piece shows its own (sharp) image. */
 const FLAT_BEND = 0.01;
 const FOCUS_DIM = 0.88;
 const WHEEL_EXIT = 90;
@@ -99,37 +102,6 @@ function clampDolly(value: number, radius: number): number {
 
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
-}
-
-/**
- * Write each facet's transform so the tile, laid out `layoutWidth` wide,
- * curves by `kx` across and `ky` down. Every other facet sinks `seam` and
- * bleeds that far under its neighbours (see `.orb-facet.is-under`).
- */
-function bendFacets(
-  el: HTMLElement,
-  tile: OrbTile,
-  layoutWidth: number,
-  kx: number,
-  ky: number,
-  seam: number,
-) {
-  const facets = el.querySelector(".orb-facets")?.children;
-  if (!facets) return;
-  el.style.setProperty("--seam", `${seam.toFixed(2)}px`);
-  const layoutHeight = layoutWidth / tile.aspect;
-  const facetWidth = layoutWidth / tile.cols;
-  const facetHeight = layoutHeight / tile.rows;
-  for (let index = 0; index < facets.length; index += 1) {
-    const facet = facets[index] as HTMLElement;
-    facet.style.transform = bendFacet(
-      ((index % tile.cols) + 0.5) * facetWidth - layoutWidth / 2,
-      (Math.floor(index / tile.cols) + 0.5) * facetHeight - layoutHeight / 2,
-      kx,
-      ky,
-      facet.classList.contains("is-under") ? -seam : 0,
-    );
-  }
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -149,6 +121,8 @@ type OrbGalleryProps = {
 
 export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rendererRef = useRef<OrbRenderer | null>(null);
   const rigRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
@@ -191,10 +165,10 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
   const focusedKeyRef = useRef<string | null>(null);
   const hoveredKeyRef = useRef<string | null>(null);
   const elementsRef = useRef(new Map<string, HTMLButtonElement>());
+  const imagesRef = useRef(new Map<string, HTMLImageElement>());
   const appliedWidthRef = useRef(new Map<string, number>());
   const appliedTransformRef = useRef(new Map<string, string>());
   const appliedOpacityRef = useRef(new Map<string, string>());
-  const appliedBendRef = useRef(new Map<string, string>());
   const appliedInteractiveRef = useRef(new Map<string, boolean>());
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ distance: number; dolly: number } | null>(null);
@@ -360,7 +334,10 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
     [animateTo, markInteraction],
   );
 
-  /** Write every tile's transform straight to the DOM. Returns true while hover or hop easing is still settling. */
+  /**
+   * Write every tile's transform straight to the DOM and draw the bent pieces.
+   * Returns true while hover or hop easing, or an image upload, is pending.
+   */
   const paint = useCallback((dt: number): boolean => {
     const rig = rigRef.current;
     const stage = stageRef.current;
@@ -390,8 +367,17 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       }
     }
 
-    rig.style.transform = `translateZ(${dolly.toFixed(2)}px)`;
-    stage.style.transform = `rotateX(${pitch.toFixed(5)}rad) rotateY(${yaw.toFixed(5)}rad) scale3d(${spread.toFixed(4)}, ${spread.toFixed(4)}, ${spread.toFixed(4)})`;
+    const rigSteps: TransformStep[] = [{ op: "translate", x: 0, y: 0, z: dolly }];
+    const stageSteps: TransformStep[] = [
+      { op: "rotateX", angle: pitch },
+      { op: "rotateY", angle: yaw },
+      { op: "scale", s: spread },
+    ];
+    rig.style.transform = toCss(rigSteps);
+    stage.style.transform = toCss(stageSteps);
+    const camera = toMatrix([...rigSteps, ...stageSteps]);
+    const renderer = rendererRef.current?.ready ? rendererRef.current : null;
+    const pieces: OrbPiece[] = [];
 
     let settling = false;
     const approach = (eased: Map<string, number>, key: string, target: number, rate: number) => {
@@ -431,16 +417,13 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       const restingOpacity = facingOpacity(facing) * (1 - FOCUS_DIM * fade);
       const opacity = lerp(restingOpacity, 1, amount) * Math.min(1, intro * 1.25);
       // Opening, a piece peels off the orb: it flattens and rises clear of
-      // its neighbours, which would otherwise poke through it.
+      // its neighbours, which would otherwise poke through it. The pieces
+      // also bend into the orb as it first appears.
       const peel = 1 - (1 - amount) ** 3;
-      // Bend only while opaque: translucent facets show their seams, and
-      // opacity below 1 would flatten them anyway. So a piece also flattens
-      // before it fades (intro, dimming, past the rim).
       const bend =
         (1 - peel) *
-        facingBend(facing) *
-        (1 - smoothstep(shade / DIM_FLATTEN)) *
-        smoothstep((intro - 0.8) / 0.2);
+        (amount > 0 ? 1 - smoothstep(shade / DIM_FLATTEN) : 1) *
+        smoothstep((intro - 0.45) / 0.55);
 
       // Lay out at focus size while (un)focusing so the image stays sharp; the
       // transform only ever scales down.
@@ -464,8 +447,14 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
         focusRise(r) * peel +
         r * (HOP_ARC * arc * Math.sin(Math.PI * amount) + HOVER_RISE * hover * (1 - peel));
       const lat = lerp(tile.lat, tile.openLat, peel);
-      // scale3d: the facets' depth has to shrink with the piece too.
-      const transform = `translate3d(${tile.x.toFixed(2)}px, ${tile.y.toFixed(2)}px, ${tile.z.toFixed(2)}px) rotateY(${tile.lon.toFixed(5)}rad) rotateX(${lat.toFixed(5)}rad) translateZ(${rise.toFixed(2)}px) scale3d(${scale.toFixed(4)}, ${scale.toFixed(4)}, ${scale.toFixed(4)})`;
+      const tileSteps: TransformStep[] = [
+        { op: "translate", x: tile.x, y: tile.y, z: tile.z },
+        { op: "rotateY", angle: tile.lon },
+        { op: "rotateX", angle: lat },
+        { op: "translate", x: 0, y: 0, z: rise },
+        { op: "scale", s: scale },
+      ];
+      const transform = toCss(tileSteps);
       if (appliedTransformRef.current.get(tile.key) !== transform) {
         appliedTransformRef.current.set(tile.key, transform);
         el.style.transform = transform;
@@ -476,19 +465,23 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
         el.style.opacity = opacityValue;
       }
 
-      const flat = bend < FLAT_BEND;
-      if (flat !== el.hasAttribute("data-flat")) el.toggleAttribute("data-flat", flat);
-      if (!flat) {
-        // The surface's curvature where the piece sits, risen off it, in the
-        // piece's own (scaled) pixels.
-        const kx = (bend * scale * tile.curveX) / (1 + rise * tile.curveX);
-        const ky = (bend * scale * tile.curveY) / (1 + rise * tile.curveY);
-        const key = `${layoutWidth}:${kx.toPrecision(4)}:${ky.toPrecision(4)}`;
-        if (appliedBendRef.current.get(tile.key) !== key) {
-          appliedBendRef.current.set(tile.key, key);
-          // About a screen pixel, however far the piece is scaled down.
-          bendFacets(el, tile, layoutWidth, kx, ky, 1 / scale);
-        }
+      // WebGL draws the piece bent, under its (empty) button. Open and flat,
+      // the piece shows its own image instead: the sharp layer, or the video.
+      const image = imagesRef.current.get(tile.key);
+      const onCanvas = renderer !== null && image !== undefined && !(amount > 0 && bend < FLAT_BEND);
+      if (onCanvas !== el.hasAttribute("data-gl")) el.toggleAttribute("data-gl", onCanvas);
+      if (onCanvas) {
+        pieces.push({
+          image,
+          matrix: toMatrix(tileSteps, camera),
+          width: layoutWidth,
+          height: layoutWidth / tile.aspect,
+          // The surface's curvature where the piece sits, risen off it, in
+          // the piece's own (scaled) pixels.
+          curveX: (bend * scale * tile.curveX) / (1 + rise * tile.curveX),
+          curveY: (bend * scale * tile.curveY) / (1 + rise * tile.curveY),
+          opacity,
+        });
       }
 
       const interactive =
@@ -513,6 +506,12 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
           yaw,
         );
       }
+    }
+
+    if (renderer) {
+      const { width, height } = viewportSizeRef.current;
+      // Keep painting until every piece's image has loaded into a texture.
+      if (renderer.draw({ width, height, perspective: ORB_PERSPECTIVE, pieces })) settling = true;
     }
 
     const title = titleRef.current;
@@ -551,6 +550,26 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
     });
     observer.observe(el);
     return () => observer.disconnect();
+  }, []);
+
+  // Without WebGL 2 (or while its context is lost) pieces show their own flat images.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const renderer = createOrbRenderer(canvas);
+    rendererRef.current = renderer;
+    const repaint = () => {
+      dirtyRef.current = true;
+    };
+    canvas.addEventListener("webglcontextlost", repaint);
+    canvas.addEventListener("webglcontextrestored", repaint);
+    repaint();
+    return () => {
+      canvas.removeEventListener("webglcontextlost", repaint);
+      canvas.removeEventListener("webglcontextrestored", repaint);
+      renderer?.dispose();
+      rendererRef.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -923,15 +942,20 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
   }, []);
 
   const register = useCallback((key: string, el: HTMLButtonElement | null) => {
+    const image = el?.querySelector<HTMLImageElement>("img.canvas-work-image");
     if (el) {
       elementsRef.current.set(key, el);
     } else {
       elementsRef.current.delete(key);
     }
+    if (image) {
+      imagesRef.current.set(key, image);
+    } else {
+      imagesRef.current.delete(key);
+    }
     appliedWidthRef.current.delete(key);
     appliedTransformRef.current.delete(key);
     appliedOpacityRef.current.delete(key);
-    appliedBendRef.current.delete(key);
     appliedInteractiveRef.current.delete(key);
     dirtyRef.current = true;
   }, []);
@@ -970,13 +994,13 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
           between visible pieces. In a piece, arrow keys move to neighbors and
           Escape returns to the orb.
         </p>
+        <canvas ref={canvasRef} className="orb-canvas" aria-hidden="true" />
         <div ref={rigRef} className="orb-rig">
           <div ref={stageRef} className="orb-stage">
             {tiles.map((tile) => (
               <OrbWork
                 key={tile.key}
                 tile={tile}
-                facets={tile}
                 focused={tile.key === focusedKey}
                 register={register}
                 onSelect={onSelect}

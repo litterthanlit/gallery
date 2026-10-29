@@ -24,9 +24,6 @@ export type OrbTile = Work & {
   /** Surface curvature (1 / radius) along the tile's width and its height. */
   curveX: number;
   curveY: number;
-  /** Facet grid that bends the tile to the surface. */
-  cols: number;
-  rows: number;
   /** Resting size (pre-perspective) on the surface. */
   tileWidth: number;
   /** Size (pre-perspective) that fills the frame when focused. */
@@ -54,13 +51,6 @@ const ORB_SQUASH = 0.68;
 const TILE_TARGET = 48;
 /** Share of the average tile spacing each tile's longest side takes. */
 const TILE_FILL = 0.76;
-/**
- * Facets across a tile's short side. Two already land the edges at the
- * surface's depth; each extra facet costs the browser's 3D depth sort roughly
- * quadratically across the whole orb.
- */
-const FACETS_SHORT = 2;
-const FACETS_MAX = 3;
 
 export function orbShape(viewportWidth: number, viewportHeight: number): OrbShape {
   const rx = Math.min(520, Math.max(140, Math.min(viewportWidth * 0.43, viewportHeight * 0.42)));
@@ -79,38 +69,6 @@ export function focusRise(radius: number): number {
 /** Perspective magnification at depth `z` (toward camera is positive). */
 export function perspectiveScale(z: number, perspective = ORB_PERSPECTIVE): number {
   return perspective / Math.max(40, perspective - z);
-}
-
-function facetGrid(aspect: number): { cols: number; rows: number } {
-  const long = Math.min(FACETS_MAX, Math.round(FACETS_SHORT * Math.max(aspect, 1 / aspect)));
-  return aspect >= 1
-    ? { cols: long, rows: FACETS_SHORT }
-    : { cols: FACETS_SHORT, rows: long };
-}
-
-/** Distance along the tangent after an arc of length `s` with curvature `k`. */
-function along(s: number, k: number): number {
-  return k > 0 ? Math.sin(s * k) / k : s;
-}
-
-/** How far that arc has curved back behind the tangent (zero or negative). */
-function below(s: number, k: number): number {
-  return k > 0 ? (Math.cos(s * k) - 1) / k : 0;
-}
-
-/**
- * Transform that moves the facet centred at (cx, cy) on a flat tile onto a
- * surface touching the tile at its centre and curving by `kx` across it and
- * `ky` down it, then `depth` along the facet's normal.
- */
-export function bendFacet(cx: number, cy: number, kx: number, ky: number, depth = 0): string {
-  const u = cx * kx;
-  const v = cy * ky;
-  const back = below(cy, ky);
-  const x = along(cx, kx) + back * Math.sin(u) - cx;
-  const y = along(cy, ky) - cy;
-  const z = below(cx, kx) + back * Math.cos(u);
-  return `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, ${z.toFixed(2)}px) rotateY(${u.toFixed(5)}rad) rotateX(${(-v).toFixed(5)}rad) translateZ(${depth.toFixed(2)}px)`;
 }
 
 /** Unit vector a tile turned by CSS `rotateY(lon) rotateX(lat)` faces along. */
@@ -250,7 +208,6 @@ export function placeOnOrb(
       openLat: -Math.atan2(point.y, ring),
       curveX: ry / (rx * stretch),
       curveY: (rx * ry) / stretch ** 3,
-      ...facetGrid(aspect),
       tileWidth,
       focusWidth,
       aspect,
@@ -310,17 +267,9 @@ export function smoothstep(t: number): number {
   return x * x * (3 - 2 * x);
 }
 
-/** Facing just past the rim, where a piece has flattened and starts to fade. */
-const RIM_FACING = 0.42;
-
-/** Facing is 0 (far side) … 1 (toward camera). Opaque until past the rim. */
+/** Facing is 0 (far side) … 1 (toward camera). Opaque until just past the rim. */
 export function facingOpacity(facing: number): number {
-  return 0.08 + 0.92 * smoothstep((facing - 0.15) / (RIM_FACING - 0.15));
-}
-
-/** 1 where a piece bends with the surface, easing to 0 (flat) past the rim. */
-export function facingBend(facing: number): number {
-  return smoothstep((facing - RIM_FACING) / 0.08);
+  return 0.08 + 0.92 * smoothstep((facing - 0.15) / 0.27);
 }
 
 /** Front-most tile — the natural target for Enter in overview. */

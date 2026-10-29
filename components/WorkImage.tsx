@@ -26,41 +26,6 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-type WorkTileImageProps = {
-  work: Work;
-  sizes: string;
-  loading?: "lazy" | "eager";
-  className?: string;
-};
-
-/**
- * The small optimized still. Copies with the same `sizes` share one download,
- * so the orb can cut a piece into facets without fetching it again.
- */
-export function WorkTileImage({
-  work,
-  sizes,
-  loading = "lazy",
-  className = "canvas-work-image",
-}: WorkTileImageProps) {
-  // Animated GIFs can't be resized by the optimizer — serve them as-is, once.
-  const animated = work.src.toLowerCase().endsWith(".gif");
-  return (
-    <Image
-      src={withBase(work.src)}
-      alt=""
-      width={work.width}
-      height={work.height}
-      sizes={sizes}
-      quality={TILE_QUALITY}
-      loading={loading}
-      unoptimized={animated}
-      draggable={false}
-      className={className}
-    />
-  );
-}
-
 /**
  * A work as two layers: a small optimized tile that always loads, and a
  * detail layer — the full-size image, or the video for motion pieces — that
@@ -73,6 +38,7 @@ export function WorkImage({
   detail,
   loading = "lazy",
 }: WorkImageProps) {
+  // Animated GIFs can't be resized by the optimizer — serve them as-is, once.
   const animated = work.src.toLowerCase().endsWith(".gif");
   const [lingering, setLingering] = useState(detail);
   const [detailLoaded, setDetailLoaded] = useState(false);
@@ -91,7 +57,18 @@ export function WorkImage({
 
   return (
     <>
-      <WorkTileImage work={work} sizes={tileSizes} loading={loading} />
+      <Image
+        src={withBase(work.src)}
+        alt=""
+        width={work.width}
+        height={work.height}
+        sizes={tileSizes}
+        quality={TILE_QUALITY}
+        loading={loading}
+        unoptimized={animated}
+        draggable={false}
+        className="canvas-work-image"
+      />
       {showDetail && work.video ? (
         <video
           ref={(el) => {
