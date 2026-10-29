@@ -288,6 +288,23 @@ body::before {
   object-fit: cover;
 }
 
+/* The orb's pieces are drawn bent by WebGL (`.orb-canvas`, under the
+   tiles); a tile shows its own image, and its shadow, only while it's open
+   and flat. Its button stays for clicks, focus and the focus ring either way. */
+.orb-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.canvas-work.orb-work[data-gl] > .canvas-work-plane,
+.canvas-work.orb-work[data-gl] > .canvas-work-image,
+.canvas-work.orb-work[data-gl] > .canvas-work-image-detail {
+  visibility: hidden;
+}
+
 .canvas-work.orb-work.is-focused {
   cursor: zoom-out;
 }

@@ -12,21 +12,27 @@ import { works } from "@/data/works";
 import { OrbWork } from "@/components/OrbWork";
 import { easeInOutCubic, lerp } from "@/lib/camera";
 import { directionFromDelta, type NavDirection } from "@/lib/canvasLayout";
+import { createOrbRenderer, type OrbPiece, type OrbRenderer } from "@/lib/orbRenderer";
+import { toCss, toMatrix, type TransformStep } from "@/lib/transform3d";
 import {
   clampPitch,
   FACING_POINTER_MIN,
+  facingDirection,
   facingOpacity,
-  facingScale,
   findOrbNeighbor,
   focusDolly,
+  focusRise,
   frontTile,
   lerpAngle,
   ORB_PERSPECTIVE,
-  orbRadius,
+  orbShape,
   perspectiveScale,
-  placeOnSphere,
+  PITCH_LIMIT,
+  placeOnOrb,
   rotatePoint,
   rotationToFront,
+  smoothstep,
+  SPIN_PITCH_LIMIT,
   type OrbTile,
 } from "@/lib/orbLayout";
 
@@ -69,7 +75,18 @@ const AUTO_SPIN_DELAY = 2600;
 const AUTO_SPIN_RAMP = 1800;
 const SWIPE_MIN_DISTANCE = 56;
 const DRAG_THRESHOLD = 4;
-const HOVER_LIFT = 0.09;
+const HOVER_LIFT = 0.04;
+/** How far a hovered piece rises off the surface, as a share of the radius. */
+const HOVER_RISE = 0.07;
+/** Extra height, as a share of the radius, the incoming piece arcs through on a hop. */
+const HOP_ARC = 0.3;
+/**
+ * Share of the focus dim over which an open piece flattens when another
+ * piece is opening over it, so on a hop both stay flat on their sharp images.
+ */
+const DIM_FLATTEN = 0.2;
+/** Below this the bend is invisible, so an open piece shows its own (sharp) image. */
+const FLAT_BEND = 0.01;
 const FOCUS_DIM = 0.88;
 const WHEEL_EXIT = 90;
 const PINCH_EXIT = 70;
@@ -104,6 +121,8 @@ type OrbGalleryProps = {
 
 export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rendererRef = useRef<OrbRenderer | null>(null);
   const rigRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
@@ -114,13 +133,18 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
   const [hintVisible, setHintVisible] = useState(true);
   const [isSpinning, setIsSpinning] = useState(false);
 
-  const radius = viewport ? orbRadius(viewport.width, viewport.height) : 0;
+  const shape = useMemo(
+    () => (viewport ? orbShape(viewport.width, viewport.height) : null),
+    [viewport],
+  );
+  // Sizes that don't depend on direction (zoom range, rises) scale with the width.
+  const radius = shape?.rx ?? 0;
   const tiles = useMemo(
     () =>
-      viewport
-        ? placeOnSphere(works, radius, viewport.width, viewport.height)
+      viewport && shape
+        ? placeOnOrb(works, shape, viewport.width, viewport.height)
         : [],
-    [radius, viewport],
+    [shape, viewport],
   );
 
   // Animation state lives in refs; the frame loop reads and paints it.
@@ -132,6 +156,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
   const velocityRef = useRef({ pitch: 0, yaw: 0 });
   const focusAmountsRef = useRef(new Map<string, number>());
   const hoverAmountsRef = useRef(new Map<string, number>());
+  const arcAmountsRef = useRef(new Map<string, number>());
   const tweenRef = useRef<Tween | null>(null);
   const introRef = useRef(0);
   const dirtyRef = useRef(true);
@@ -140,7 +165,10 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
   const focusedKeyRef = useRef<string | null>(null);
   const hoveredKeyRef = useRef<string | null>(null);
   const elementsRef = useRef(new Map<string, HTMLButtonElement>());
+  const imagesRef = useRef(new Map<string, HTMLImageElement>());
   const appliedWidthRef = useRef(new Map<string, number>());
+  const appliedTransformRef = useRef(new Map<string, string>());
+  const appliedOpacityRef = useRef(new Map<string, string>());
   const appliedInteractiveRef = useRef(new Map<string, boolean>());
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ distance: number; dolly: number } | null>(null);
@@ -189,8 +217,13 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
   }, []);
 
   const setPose = useCallback((next: OrbPose) => {
+    // Spinning stays near side-on, but never snaps back from a steeper tilt
+    // left by an open piece; it can only move back toward the range.
+    const limit = focusedKeyRef.current
+      ? PITCH_LIMIT
+      : Math.max(SPIN_PITCH_LIMIT, Math.abs(poseRef.current.pitch));
     const clamped = {
-      pitch: clampPitch(next.pitch),
+      pitch: clampPitch(next.pitch, limit),
       yaw: next.yaw,
       dolly: clampDolly(next.dolly, radiusRef.current),
     };
@@ -216,7 +249,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       tweenRef.current = {
         from: { ...poseRef.current },
         to: {
-          pitch: clampPitch(to.pitch),
+          pitch: clampPitch(to.pitch, toKey ? PITCH_LIMIT : SPIN_PITCH_LIMIT),
           yaw: to.yaw,
           dolly: clampDolly(to.dolly, radiusRef.current),
         },
@@ -301,7 +334,10 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
     [animateTo, markInteraction],
   );
 
-  /** Write every tile's transform straight to the DOM. Returns true while hover easing is still settling. */
+  /**
+   * Write every tile's transform straight to the DOM and draw the bent pieces.
+   * Returns true while hover or hop easing, or an image upload, is pending.
+   */
   const paint = useCallback((dt: number): boolean => {
     const rig = rigRef.current;
     const stage = stageRef.current;
@@ -316,14 +352,43 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
     const amounts = focusAmountsRef.current;
     const focused = focusedKeyRef.current;
     const hovered = focused === null ? hoveredKeyRef.current : null;
-    let dim = 0;
-    for (const value of amounts.values()) dim = Math.max(dim, value);
+    // Each piece is dimmed by the most open piece other than itself, so on a
+    // hop neither of the two open pieces dims the other back into bending.
+    let topKey: string | null = null;
+    let top = 0;
+    let runnerUp = 0;
+    for (const [key, value] of amounts) {
+      if (value > top) {
+        runnerUp = top;
+        top = value;
+        topKey = key;
+      } else {
+        runnerUp = Math.max(runnerUp, value);
+      }
+    }
 
-    rig.style.transform = `translateZ(${dolly.toFixed(2)}px)`;
-    stage.style.transform = `rotateX(${pitch.toFixed(5)}rad) rotateY(${yaw.toFixed(5)}rad)`;
-    const counter = `rotateY(${(-yaw).toFixed(5)}rad) rotateX(${(-pitch).toFixed(5)}rad)`;
+    const rigSteps: TransformStep[] = [{ op: "translate", x: 0, y: 0, z: dolly }];
+    const stageSteps: TransformStep[] = [
+      { op: "rotateX", angle: pitch },
+      { op: "rotateY", angle: yaw },
+      { op: "scale", s: spread },
+    ];
+    rig.style.transform = toCss(rigSteps);
+    stage.style.transform = toCss(stageSteps);
+    const camera = toMatrix([...rigSteps, ...stageSteps]);
+    const renderer = rendererRef.current?.ready ? rendererRef.current : null;
+    const pieces: OrbPiece[] = [];
 
-    let hoverSettling = false;
+    let settling = false;
+    const approach = (eased: Map<string, number>, key: string, target: number, rate: number) => {
+      let value = eased.get(key) ?? 0;
+      if (value === target) return value;
+      value += (target - value) * Math.min(1, dt * rate);
+      if (Math.abs(target - value) < 0.002) value = target;
+      else settling = true;
+      eased.set(key, value);
+      return value;
+    };
     let titleTile: OrbTile | null = null;
     let titleWidth = 0;
     let titlePoint = { x: 0, y: 0, z: 0 };
@@ -332,23 +397,33 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       const el = elementsRef.current.get(tile.key);
       if (!el) continue;
 
-      const point = rotatePoint(tile.x, tile.y, tile.z, pitch, yaw);
-      const facing = (point.z / r + 1) / 2;
+      const normal = facingDirection(tile.lon, tile.lat);
+      const facing = (rotatePoint(normal.x, normal.y, normal.z, pitch, yaw).z + 1) / 2;
       const amount = amounts.get(tile.key) ?? 0;
 
-      const hoverTarget = tile.key === hovered ? 1 : 0;
-      let hover = hoverAmountsRef.current.get(tile.key) ?? 0;
-      if (hover !== hoverTarget) {
-        hover += (hoverTarget - hover) * Math.min(1, dt * 14);
-        if (Math.abs(hoverTarget - hover) < 0.002) hover = hoverTarget;
-        else hoverSettling = true;
-        hoverAmountsRef.current.set(tile.key, hover);
-      }
+      const hover = approach(hoverAmountsRef.current, tile.key, tile.key === hovered ? 1 : 0, 14);
+      // Eased so the arc settles rather than drops when focus moves mid-hop.
+      const arc = approach(
+        arcAmountsRef.current,
+        tile.key,
+        tile.key === focused && amounts.size > 1 ? 1 : 0,
+        10,
+      );
 
-      const resting = tile.tileWidth * facingScale(facing) * (1 + HOVER_LIFT * hover);
+      const resting = tile.tileWidth * (1 + HOVER_LIFT * hover);
       const width = lerp(resting, tile.focusWidth, amount);
-      const restingOpacity = facingOpacity(facing) * (1 - FOCUS_DIM * (dim - amount));
+      const shade = tile.key === topKey ? runnerUp : top;
+      const fade = Math.max(0, (shade - DIM_FLATTEN) / (1 - DIM_FLATTEN));
+      const restingOpacity = facingOpacity(facing) * (1 - FOCUS_DIM * fade);
       const opacity = lerp(restingOpacity, 1, amount) * Math.min(1, intro * 1.25);
+      // Opening, a piece peels off the orb: it flattens and rises clear of
+      // its neighbours, which would otherwise poke through it. The pieces
+      // also bend into the orb as it first appears.
+      const peel = 1 - (1 - amount) ** 3;
+      const bend =
+        (1 - peel) *
+        (amount > 0 ? 1 - smoothstep(shade / DIM_FLATTEN) : 1) *
+        smoothstep((intro - 0.45) / 0.55);
 
       // Lay out at focus size while (un)focusing so the image stays sharp; the
       // transform only ever scales down.
@@ -362,8 +437,52 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
         el.style.marginTop = `${-layoutHeight / 2}px`;
       }
 
-      el.style.transform = `translate3d(${(tile.x * spread).toFixed(2)}px, ${(tile.y * spread).toFixed(2)}px, ${(tile.z * spread).toFixed(2)}px) ${counter} scale(${(width / layoutWidth).toFixed(4)})`;
-      el.style.opacity = opacity.toFixed(3);
+      // Lie flat on the surface; a hovered piece rises off it a little. On a
+      // hop the incoming piece arcs higher, passing in front of the outgoing
+      // one rather than through it. Opening, a piece turns to face straight
+      // out from the centre, so it lands face-on once the orb turns it to the
+      // front.
+      const scale = width / layoutWidth;
+      const rise =
+        focusRise(r) * peel +
+        r * (HOP_ARC * arc * Math.sin(Math.PI * amount) + HOVER_RISE * hover * (1 - peel));
+      const lat = lerp(tile.lat, tile.openLat, peel);
+      const tileSteps: TransformStep[] = [
+        { op: "translate", x: tile.x, y: tile.y, z: tile.z },
+        { op: "rotateY", angle: tile.lon },
+        { op: "rotateX", angle: lat },
+        { op: "translate", x: 0, y: 0, z: rise },
+        { op: "scale", s: scale },
+      ];
+      const transform = toCss(tileSteps);
+      if (appliedTransformRef.current.get(tile.key) !== transform) {
+        appliedTransformRef.current.set(tile.key, transform);
+        el.style.transform = transform;
+      }
+      const opacityValue = opacity.toFixed(3);
+      if (appliedOpacityRef.current.get(tile.key) !== opacityValue) {
+        appliedOpacityRef.current.set(tile.key, opacityValue);
+        el.style.opacity = opacityValue;
+      }
+
+      // WebGL draws the piece bent, under its (empty) button. Open and flat,
+      // the piece shows its own image instead: the sharp layer, or the video.
+      const image = imagesRef.current.get(tile.key);
+      const onCanvas = renderer !== null && image !== undefined && !(amount > 0 && bend < FLAT_BEND);
+      if (onCanvas !== el.hasAttribute("data-gl")) el.toggleAttribute("data-gl", onCanvas);
+      if (onCanvas) {
+        pieces.push({
+          image,
+          matrix: toMatrix(tileSteps, camera),
+          width: layoutWidth,
+          height: layoutWidth / tile.aspect,
+          // The surface's curvature where the piece sits, risen off it, in
+          // the piece's own (scaled) pixels.
+          curveX: (bend * scale * tile.curveX) / (1 + rise * tile.curveX),
+          curveY: (bend * scale * tile.curveY) / (1 + rise * tile.curveY),
+          opacity,
+        });
+      }
 
       const interactive =
         focused === null
@@ -378,8 +497,21 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       if (tile.key === focused) {
         titleTile = tile;
         titleWidth = width;
-        titlePoint = point;
+        const out = facingDirection(tile.lon, lat);
+        titlePoint = rotatePoint(
+          tile.x + out.x * rise,
+          tile.y + out.y * rise,
+          tile.z + out.z * rise,
+          pitch,
+          yaw,
+        );
       }
+    }
+
+    if (renderer) {
+      const { width, height } = viewportSizeRef.current;
+      // Keep painting until every piece's image has loaded into a texture.
+      if (renderer.draw({ width, height, perspective: ORB_PERSPECTIVE, pieces })) settling = true;
     }
 
     const title = titleRef.current;
@@ -391,7 +523,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
         const y =
           vh / 2 +
           titlePoint.y * spread * scale +
-          (titleWidth / titleTile.aspect / 2) * scale +
+          (titleWidth / titleTile.aspect / 2) * spread * scale +
           22;
         const reveal = Math.min(1, Math.max(0, ((amounts.get(titleTile.key) ?? 0) - 0.6) / 0.4));
         title.style.transform = `translate3d(${x.toFixed(1)}px, ${(y + (1 - reveal) * 8).toFixed(1)}px, 0) translateX(-50%)`;
@@ -401,7 +533,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       }
     }
 
-    return hoverSettling;
+    return settling;
   }, []);
 
   // Measure; tiles render only after this so server and client markup match.
@@ -418,6 +550,26 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
     });
     observer.observe(el);
     return () => observer.disconnect();
+  }, []);
+
+  // Without WebGL 2 (or while its context is lost) pieces show their own flat images.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const renderer = createOrbRenderer(canvas);
+    rendererRef.current = renderer;
+    const repaint = () => {
+      dirtyRef.current = true;
+    };
+    canvas.addEventListener("webglcontextlost", repaint);
+    canvas.addEventListener("webglcontextrestored", repaint);
+    repaint();
+    return () => {
+      canvas.removeEventListener("webglcontextlost", repaint);
+      canvas.removeEventListener("webglcontextrestored", repaint);
+      renderer?.dispose();
+      rendererRef.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -790,12 +942,20 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
   }, []);
 
   const register = useCallback((key: string, el: HTMLButtonElement | null) => {
+    const image = el?.querySelector<HTMLImageElement>("img.canvas-work-image");
     if (el) {
       elementsRef.current.set(key, el);
     } else {
       elementsRef.current.delete(key);
     }
+    if (image) {
+      imagesRef.current.set(key, image);
+    } else {
+      imagesRef.current.delete(key);
+    }
     appliedWidthRef.current.delete(key);
+    appliedTransformRef.current.delete(key);
+    appliedOpacityRef.current.delete(key);
     appliedInteractiveRef.current.delete(key);
     dirtyRef.current = true;
   }, []);
@@ -834,6 +994,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
           between visible pieces. In a piece, arrow keys move to neighbors and
           Escape returns to the orb.
         </p>
+        <canvas ref={canvasRef} className="orb-canvas" aria-hidden="true" />
         <div ref={rigRef} className="orb-rig">
           <div ref={stageRef} className="orb-stage">
             {tiles.map((tile) => (
