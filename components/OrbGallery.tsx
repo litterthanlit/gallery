@@ -17,6 +17,7 @@ import {
   clampPitch,
   FACING_POINTER_MIN,
   facingBend,
+  facingDirection,
   facingOpacity,
   findOrbNeighbor,
   focusDolly,
@@ -24,12 +25,14 @@ import {
   frontTile,
   lerpAngle,
   ORB_PERSPECTIVE,
-  orbRadius,
+  orbShape,
   perspectiveScale,
-  placeOnSphere,
+  PITCH_LIMIT,
+  placeOnOrb,
   rotatePoint,
   rotationToFront,
   smoothstep,
+  SPIN_PITCH_LIMIT,
   type OrbTile,
 } from "@/lib/orbLayout";
 
@@ -100,14 +103,15 @@ function easeOutCubic(t: number): number {
 
 /**
  * Write each facet's transform so the tile, laid out `layoutWidth` wide,
- * curves with `curvature`. Every other facet sinks `seam` and bleeds that far
- * under its neighbours (see `.orb-facet.is-under`).
+ * curves by `kx` across and `ky` down. Every other facet sinks `seam` and
+ * bleeds that far under its neighbours (see `.orb-facet.is-under`).
  */
 function bendFacets(
   el: HTMLElement,
   tile: OrbTile,
   layoutWidth: number,
-  curvature: number,
+  kx: number,
+  ky: number,
   seam: number,
 ) {
   const facets = el.querySelector(".orb-facets")?.children;
@@ -121,7 +125,8 @@ function bendFacets(
     facet.style.transform = bendFacet(
       ((index % tile.cols) + 0.5) * facetWidth - layoutWidth / 2,
       (Math.floor(index / tile.cols) + 0.5) * facetHeight - layoutHeight / 2,
-      curvature,
+      kx,
+      ky,
       facet.classList.contains("is-under") ? -seam : 0,
     );
   }
@@ -154,13 +159,18 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
   const [hintVisible, setHintVisible] = useState(true);
   const [isSpinning, setIsSpinning] = useState(false);
 
-  const radius = viewport ? orbRadius(viewport.width, viewport.height) : 0;
+  const shape = useMemo(
+    () => (viewport ? orbShape(viewport.width, viewport.height) : null),
+    [viewport],
+  );
+  // Sizes that don't depend on direction (zoom range, rises) scale with the width.
+  const radius = shape?.rx ?? 0;
   const tiles = useMemo(
     () =>
-      viewport
-        ? placeOnSphere(works, radius, viewport.width, viewport.height)
+      viewport && shape
+        ? placeOnOrb(works, shape, viewport.width, viewport.height)
         : [],
-    [radius, viewport],
+    [shape, viewport],
   );
 
   // Animation state lives in refs; the frame loop reads and paints it.
@@ -233,8 +243,13 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
   }, []);
 
   const setPose = useCallback((next: OrbPose) => {
+    // Spinning stays near side-on, but never snaps back from a steeper tilt
+    // left by an open piece; it can only move back toward the range.
+    const limit = focusedKeyRef.current
+      ? PITCH_LIMIT
+      : Math.max(SPIN_PITCH_LIMIT, Math.abs(poseRef.current.pitch));
     const clamped = {
-      pitch: clampPitch(next.pitch),
+      pitch: clampPitch(next.pitch, limit),
       yaw: next.yaw,
       dolly: clampDolly(next.dolly, radiusRef.current),
     };
@@ -260,7 +275,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       tweenRef.current = {
         from: { ...poseRef.current },
         to: {
-          pitch: clampPitch(to.pitch),
+          pitch: clampPitch(to.pitch, toKey ? PITCH_LIMIT : SPIN_PITCH_LIMIT),
           yaw: to.yaw,
           dolly: clampDolly(to.dolly, radiusRef.current),
         },
@@ -396,8 +411,8 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       const el = elementsRef.current.get(tile.key);
       if (!el) continue;
 
-      const point = rotatePoint(tile.x, tile.y, tile.z, pitch, yaw);
-      const facing = (point.z / r + 1) / 2;
+      const normal = facingDirection(tile.lon, tile.lat);
+      const facing = (rotatePoint(normal.x, normal.y, normal.z, pitch, yaw).z + 1) / 2;
       const amount = amounts.get(tile.key) ?? 0;
 
       const hover = approach(hoverAmountsRef.current, tile.key, tile.key === hovered ? 1 : 0, 14);
@@ -415,7 +430,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       const fade = Math.max(0, (shade - DIM_FLATTEN) / (1 - DIM_FLATTEN));
       const restingOpacity = facingOpacity(facing) * (1 - FOCUS_DIM * fade);
       const opacity = lerp(restingOpacity, 1, amount) * Math.min(1, intro * 1.25);
-      // Opening, a piece peels off the sphere: it flattens and rises clear of
+      // Opening, a piece peels off the orb: it flattens and rises clear of
       // its neighbours, which would otherwise poke through it.
       const peel = 1 - (1 - amount) ** 3;
       // Bend only while opaque: translucent facets show their seams, and
@@ -439,16 +454,18 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
         el.style.marginTop = `${-layoutHeight / 2}px`;
       }
 
-      // Lie on the sphere; a hovered piece rises off it a little. On a hop the
-      // incoming piece arcs higher, passing in front of the outgoing one
-      // rather than through it.
+      // Lie flat on the surface; a hovered piece rises off it a little. On a
+      // hop the incoming piece arcs higher, passing in front of the outgoing
+      // one rather than through it. Opening, a piece turns to face straight
+      // out from the centre, so it lands face-on once the orb turns it to the
+      // front.
       const scale = width / layoutWidth;
-      const lift =
-        r +
+      const rise =
         focusRise(r) * peel +
         r * (HOP_ARC * arc * Math.sin(Math.PI * amount) + HOVER_RISE * hover * (1 - peel));
+      const lat = lerp(tile.lat, tile.openLat, peel);
       // scale3d: the facets' depth has to shrink with the piece too.
-      const transform = `rotateY(${tile.lon.toFixed(5)}rad) rotateX(${tile.lat.toFixed(5)}rad) translateZ(${lift.toFixed(2)}px) scale3d(${scale.toFixed(4)}, ${scale.toFixed(4)}, ${scale.toFixed(4)})`;
+      const transform = `translate3d(${tile.x.toFixed(2)}px, ${tile.y.toFixed(2)}px, ${tile.z.toFixed(2)}px) rotateY(${tile.lon.toFixed(5)}rad) rotateX(${lat.toFixed(5)}rad) translateZ(${rise.toFixed(2)}px) scale3d(${scale.toFixed(4)}, ${scale.toFixed(4)}, ${scale.toFixed(4)})`;
       if (appliedTransformRef.current.get(tile.key) !== transform) {
         appliedTransformRef.current.set(tile.key, transform);
         el.style.transform = transform;
@@ -462,12 +479,15 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       const flat = bend < FLAT_BEND;
       if (flat !== el.hasAttribute("data-flat")) el.toggleAttribute("data-flat", flat);
       if (!flat) {
-        const curvature = (bend * scale) / lift;
-        const key = `${layoutWidth}:${curvature.toPrecision(4)}`;
+        // The surface's curvature where the piece sits, risen off it, in the
+        // piece's own (scaled) pixels.
+        const kx = (bend * scale * tile.curveX) / (1 + rise * tile.curveX);
+        const ky = (bend * scale * tile.curveY) / (1 + rise * tile.curveY);
+        const key = `${layoutWidth}:${kx.toPrecision(4)}:${ky.toPrecision(4)}`;
         if (appliedBendRef.current.get(tile.key) !== key) {
           appliedBendRef.current.set(tile.key, key);
           // About a screen pixel, however far the piece is scaled down.
-          bendFacets(el, tile, layoutWidth, curvature, 1 / scale);
+          bendFacets(el, tile, layoutWidth, kx, ky, 1 / scale);
         }
       }
 
@@ -484,7 +504,14 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       if (tile.key === focused) {
         titleTile = tile;
         titleWidth = width;
-        titlePoint = { x: (point.x * lift) / r, y: (point.y * lift) / r, z: (point.z * lift) / r };
+        const out = facingDirection(tile.lon, lat);
+        titlePoint = rotatePoint(
+          tile.x + out.x * rise,
+          tile.y + out.y * rise,
+          tile.z + out.z * rise,
+          pitch,
+          yaw,
+        );
       }
     }
 

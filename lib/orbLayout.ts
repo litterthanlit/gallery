@@ -1,19 +1,33 @@
 import type { Work } from "@/data/works";
 import type { NavDirection } from "@/lib/canvasLayout";
 
-/** One placement of a work on the sphere. Works repeat so the orb reads full. */
+/** The orb: a sphere squashed top to bottom, so wider than it is tall. */
+export type OrbShape = {
+  /** Horizontal (equatorial) radius. */
+  rx: number;
+  /** Vertical (polar) radius. */
+  ry: number;
+};
+
+/** One placement of a work on the orb. Works repeat so the orb reads full. */
 export type OrbTile = Work & {
   key: string;
+  /** Point on the surface. */
   x: number;
   y: number;
   z: number;
-  /** CSS `rotateY(lon) rotateX(lat)` turns the tile to lie on the sphere at (x, y, z). */
+  /** CSS `rotateY(lon) rotateX(lat)` turns the tile to lie flat on the surface at (x, y, z). */
   lon: number;
   lat: number;
-  /** Facet grid that bends the tile around the sphere. */
+  /** `lat` for facing straight out from the centre, as an open piece does so it lands face-on. */
+  openLat: number;
+  /** Surface curvature (1 / radius) along the tile's width and its height. */
+  curveX: number;
+  curveY: number;
+  /** Facet grid that bends the tile to the surface. */
   cols: number;
   rows: number;
-  /** Resting size (pre-perspective) on the sphere. */
+  /** Resting size (pre-perspective) on the surface. */
   tileWidth: number;
   /** Size (pre-perspective) that fills the frame when focused. */
   focusWidth: number;
@@ -26,29 +40,38 @@ export type OrbTile = Work & {
 
 export const ORB_PERSPECTIVE = 1500;
 export const PITCH_LIMIT = 1.4;
+/**
+ * Free spinning keeps the orb near side-on, where it reads as squashed; seen
+ * from a pole it's a full circle. Opening a piece near a pole may tilt
+ * further, up to PITCH_LIMIT, to face it.
+ */
+export const SPIN_PITCH_LIMIT = 0.6;
 export const FACING_POINTER_MIN = 0.5;
 
+/** Height over width: below 1, the orb is shorter than it is wide. */
+const ORB_SQUASH = 0.68;
 /** Aim for roughly this many tiles; rounded up to whole catalog passes. */
 const TILE_TARGET = 48;
 /** Share of the average tile spacing each tile's longest side takes. */
 const TILE_FILL = 0.76;
 /**
  * Facets across a tile's short side. Two already land the edges at the
- * sphere's depth; each extra facet costs the browser's 3D depth sort roughly
+ * surface's depth; each extra facet costs the browser's 3D depth sort roughly
  * quadratically across the whole orb.
  */
 const FACETS_SHORT = 2;
 const FACETS_MAX = 3;
 
-export function orbRadius(viewportWidth: number, viewportHeight: number): number {
-  return Math.min(420, Math.max(130, Math.min(viewportWidth * 0.4, viewportHeight * 0.34)));
+export function orbShape(viewportWidth: number, viewportHeight: number): OrbShape {
+  const rx = Math.min(520, Math.max(140, Math.min(viewportWidth * 0.43, viewportHeight * 0.42)));
+  return { rx, ry: rx * ORB_SQUASH };
 }
 
 export function focusDolly(radius: number): number {
   return radius * 0.12;
 }
 
-/** How far an open piece floats off the sphere, clear of its neighbours. */
+/** How far an open piece floats off the surface, clear of its neighbours. */
 export function focusRise(radius: number): number {
   return radius * 0.25;
 }
@@ -65,20 +88,38 @@ function facetGrid(aspect: number): { cols: number; rows: number } {
     : { cols: FACETS_SHORT, rows: long };
 }
 
+/** Distance along the tangent after an arc of length `s` with curvature `k`. */
+function along(s: number, k: number): number {
+  return k > 0 ? Math.sin(s * k) / k : s;
+}
+
+/** How far that arc has curved back behind the tangent (zero or negative). */
+function below(s: number, k: number): number {
+  return k > 0 ? (Math.cos(s * k) - 1) / k : 0;
+}
+
 /**
  * Transform that moves the facet centred at (cx, cy) on a flat tile onto a
- * sphere of curvature `k` (1 / radius) that touches the tile at its centre,
- * then `depth` along the facet's normal.
+ * surface touching the tile at its centre and curving by `kx` across it and
+ * `ky` down it, then `depth` along the facet's normal.
  */
-export function bendFacet(cx: number, cy: number, k: number, depth = 0): string {
-  const sink = `translateZ(${depth.toFixed(2)}px)`;
-  if (k <= 0) return sink;
-  const u = cx * k;
-  const v = cy * k;
-  const x = (Math.sin(u) * Math.cos(v)) / k - cx;
-  const y = Math.sin(v) / k - cy;
-  const z = (Math.cos(u) * Math.cos(v) - 1) / k;
-  return `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, ${z.toFixed(2)}px) rotateY(${u.toFixed(5)}rad) rotateX(${(-v).toFixed(5)}rad) ${sink}`;
+export function bendFacet(cx: number, cy: number, kx: number, ky: number, depth = 0): string {
+  const u = cx * kx;
+  const v = cy * ky;
+  const back = below(cy, ky);
+  const x = along(cx, kx) + back * Math.sin(u) - cx;
+  const y = along(cy, ky) - cy;
+  const z = below(cx, kx) + back * Math.cos(u);
+  return `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, ${z.toFixed(2)}px) rotateY(${u.toFixed(5)}rad) rotateX(${(-v).toFixed(5)}rad) translateZ(${depth.toFixed(2)}px)`;
+}
+
+/** Unit vector a tile turned by CSS `rotateY(lon) rotateX(lat)` faces along. */
+export function facingDirection(lon: number, lat: number): { x: number; y: number; z: number } {
+  return {
+    x: Math.cos(lat) * Math.sin(lon),
+    y: -Math.sin(lat),
+    z: Math.cos(lat) * Math.cos(lon),
+  };
 }
 
 function tileCount(catalogSize: number): number {
@@ -87,7 +128,7 @@ function tileCount(catalogSize: number): number {
 }
 
 /**
- * Pick which work each sphere slot shows so copies of the same piece land as
+ * Pick which work each slot shows so copies of the same piece land as
  * far apart as possible. Greedy, deterministic, O(n²) — fine for a few dozen.
  */
 function assignWorks(
@@ -123,52 +164,92 @@ function assignWorks(
   });
 }
 
+/** Surface area of the orb from the south pole up to latitude `beta`, as a table to invert. */
+function areaTable({ rx, ry }: OrbShape, steps = 512): { beta: number; area: number }[] {
+  const table = [{ beta: -Math.PI / 2, area: 0 }];
+  // Area of the band at parametric latitude b, per unit of b.
+  const band = (b: number) =>
+    2 * Math.PI * rx * Math.cos(b) * Math.hypot(rx * Math.sin(b), ry * Math.cos(b));
+  for (let step = 1; step <= steps; step += 1) {
+    const from = table[step - 1]!;
+    const beta = -Math.PI / 2 + (Math.PI * step) / steps;
+    table.push({ beta, area: from.area + ((band(from.beta) + band(beta)) / 2) * (beta - from.beta) });
+  }
+  return table;
+}
+
+function latitudeAtArea(table: { beta: number; area: number }[], area: number): number {
+  const next = table.findIndex((row) => row.area >= area);
+  if (next <= 0) return table[Math.max(0, next)]!.beta;
+  const a = table[next - 1]!;
+  const b = table[next]!;
+  return a.beta + ((area - a.area) / (b.area - a.area)) * (b.beta - a.beta);
+}
+
 /**
- * Fibonacci sphere in CSS 3D space: +X right, +Y down, +Z toward the camera.
+ * Fibonacci spiral over the orb in CSS 3D space (+X right, +Y down, +Z toward
+ * the camera), spaced by equal surface area so the squashed orb stays evenly
+ * covered.
  */
-export function placeOnSphere(
+export function placeOnOrb(
   catalog: Work[],
-  radius: number,
+  shape: OrbShape,
   viewportWidth: number,
   viewportHeight: number,
 ): OrbTile[] {
   const count = tileCount(catalog.length);
   if (count === 0) return [];
+  const { rx, ry } = shape;
 
+  const table = areaTable(shape);
+  const totalArea = table[table.length - 1]!.area;
   const golden = Math.PI * (3 - Math.sqrt(5));
-  const unit = Array.from({ length: count }, (_, index) => {
-    // Offset variant keeps tiles off the exact poles.
-    const yMath = 1 - (2 * index + 1) / count;
-    const ring = Math.sqrt(Math.max(0, 1 - yMath * yMath));
+  const points = Array.from({ length: count }, (_, index) => {
+    // Offset by half a slot keeps tiles off the exact poles.
+    const beta = latitudeAtArea(table, totalArea * (1 - (index + 0.5) / count));
+    const ring = rx * Math.cos(beta);
     const theta = golden * index;
-    return { x: Math.cos(theta) * ring, y: -yMath, z: Math.sin(theta) * ring };
+    return { x: Math.cos(theta) * ring, y: -ry * Math.sin(beta), z: Math.sin(theta) * ring, beta };
   });
-  const assigned = assignWorks(unit, catalog);
+  const assigned = assignWorks(
+    points.map((point) => ({ x: point.x / rx, y: point.y / rx, z: point.z / rx })),
+    catalog,
+  );
 
-  const spacing = radius * Math.sqrt((4 * Math.PI) / count);
+  const spacing = Math.sqrt(totalArea / count);
   const box = spacing * TILE_FILL;
-  const frontScale = perspectiveScale(radius + focusRise(radius) + focusDolly(radius));
-  const restScale = perspectiveScale(radius) * 1.1;
+  const restScale = perspectiveScale(rx) * 1.1;
   const compact = viewportWidth < 640;
   const maxW = viewportWidth * (compact ? 0.84 : 0.6);
   const maxH = viewportHeight * (compact ? 0.56 : 0.62);
 
   const seen = new Map<string, number>();
-  return unit.map((point, index) => {
+  return points.map((point, index) => {
     const work = assigned[index]!;
     const copy = seen.get(work.id) ?? 0;
     seen.set(work.id, copy + 1);
     const aspect = work.width / work.height;
     const tileWidth = aspect >= 1 ? box : box * aspect;
+    // Open, the piece sits on the line out through its point, risen and dollied.
+    const frontScale = perspectiveScale(
+      Math.hypot(point.x, point.y, point.z) + focusRise(rx) + focusDolly(rx),
+    );
     const focusWidth = Math.min(maxW, maxH * aspect) / frontScale;
+    const ring = Math.hypot(point.x, point.z);
+    // Principal curvatures of the squashed sphere: along the meridian (down
+    // the tile) and the parallel (across it).
+    const stretch = Math.hypot(rx * Math.sin(point.beta), ry * Math.cos(point.beta));
     return {
       ...work,
       key: `${work.id}~${copy}`,
-      x: point.x * radius,
-      y: point.y * radius,
-      z: point.z * radius,
+      x: point.x,
+      y: point.y,
+      z: point.z,
       lon: Math.atan2(point.x, point.z),
-      lat: -Math.atan2(point.y, Math.hypot(point.x, point.z)),
+      lat: -Math.atan2(point.y / (ry * ry), ring / (rx * rx)),
+      openLat: -Math.atan2(point.y, ring),
+      curveX: ry / (rx * stretch),
+      curveY: (rx * ry) / stretch ** 3,
       ...facetGrid(aspect),
       tileWidth,
       focusWidth,
@@ -220,8 +301,8 @@ export function lerpAngle(from: number, to: number, t: number): number {
   return from + diff * t;
 }
 
-export function clampPitch(pitch: number): number {
-  return Math.min(PITCH_LIMIT, Math.max(-PITCH_LIMIT, pitch));
+export function clampPitch(pitch: number, limit = PITCH_LIMIT): number {
+  return Math.min(limit, Math.max(-limit, pitch));
 }
 
 export function smoothstep(t: number): number {
@@ -237,7 +318,7 @@ export function facingOpacity(facing: number): number {
   return 0.08 + 0.92 * smoothstep((facing - 0.15) / (RIM_FACING - 0.15));
 }
 
-/** 1 where a piece bends with the sphere, easing to 0 (flat) past the rim. */
+/** 1 where a piece bends with the surface, easing to 0 (flat) past the rim. */
 export function facingBend(facing: number): number {
   return smoothstep((facing - RIM_FACING) / 0.08);
 }

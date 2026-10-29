@@ -13,7 +13,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## How to explore
 
-The site opens on the **Ring** (pieces standing along the rim of an invisible crater). Switch to the **Orb** (pieces on an invisible sphere) or the **Field** (an endless masonry wall) from the header, or link to them directly: `/?view=orb`, `/?view=field`.
+The site opens on the **Ring** (pieces standing along the rim of an invisible crater). Switch to the **Orb** (pieces on an invisible, squashed sphere) or the **Field** (an endless masonry wall) from the header, or link to them directly: `/?view=orb`, `/?view=field`.
 
 Every open piece has its own link: `/?work=litopia` or `/?view=field&work=litopia`. Opening a piece adds a history entry, so the browser's **Back** closes it; hopping between pieces updates the link in place, and switching views keeps the open piece. Old `/?view=ring` links still work.
 
@@ -33,6 +33,7 @@ The ridge's shape (relief height, the slow swell) lives in [`lib/ringLayout.ts`]
 ### Orb
 
 - The sphere is tiled with repeats of the catalog so it always reads as a full globe, and drifts slowly when left alone
+- The orb is wider than it is tall; free spinning only tilts it so far, so it keeps that shape
 - Pieces lie on the surface, bent to its curve and spaced apart; the far side shows faintly through the gaps
 - **Drag** to spin — fling it for inertia, grab it to catch it
 - **Scroll / pinch** to move closer or farther; horizontal trackpad scroll spins
