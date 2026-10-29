@@ -7,6 +7,12 @@ export type OrbTile = Work & {
   x: number;
   y: number;
   z: number;
+  /** CSS `rotateY(lon) rotateX(lat)` turns the tile to lie on the sphere at (x, y, z). */
+  lon: number;
+  lat: number;
+  /** Facet grid that bends the tile around the sphere. */
+  cols: number;
+  rows: number;
   /** Resting size (pre-perspective) on the sphere. */
   tileWidth: number;
   /** Size (pre-perspective) that fills the frame when focused. */
@@ -25,7 +31,14 @@ export const FACING_POINTER_MIN = 0.5;
 /** Aim for roughly this many tiles; rounded up to whole catalog passes. */
 const TILE_TARGET = 48;
 /** Share of the average tile spacing each tile's longest side takes. */
-const TILE_FILL = 0.82;
+const TILE_FILL = 0.76;
+/**
+ * Facets across a tile's short side. Two already land the edges at the
+ * sphere's depth; each extra facet costs the browser's 3D depth sort roughly
+ * quadratically across the whole orb.
+ */
+const FACETS_SHORT = 2;
+const FACETS_MAX = 3;
 
 export function orbRadius(viewportWidth: number, viewportHeight: number): number {
   return Math.min(420, Math.max(130, Math.min(viewportWidth * 0.4, viewportHeight * 0.34)));
@@ -35,9 +48,37 @@ export function focusDolly(radius: number): number {
   return radius * 0.12;
 }
 
+/** How far an open piece floats off the sphere, clear of its neighbours. */
+export function focusRise(radius: number): number {
+  return radius * 0.25;
+}
+
 /** Perspective magnification at depth `z` (toward camera is positive). */
 export function perspectiveScale(z: number, perspective = ORB_PERSPECTIVE): number {
   return perspective / Math.max(40, perspective - z);
+}
+
+function facetGrid(aspect: number): { cols: number; rows: number } {
+  const long = Math.min(FACETS_MAX, Math.round(FACETS_SHORT * Math.max(aspect, 1 / aspect)));
+  return aspect >= 1
+    ? { cols: long, rows: FACETS_SHORT }
+    : { cols: FACETS_SHORT, rows: long };
+}
+
+/**
+ * Transform that moves the facet centred at (cx, cy) on a flat tile onto a
+ * sphere of curvature `k` (1 / radius) that touches the tile at its centre,
+ * then `depth` along the facet's normal.
+ */
+export function bendFacet(cx: number, cy: number, k: number, depth = 0): string {
+  const sink = `translateZ(${depth.toFixed(2)}px)`;
+  if (k <= 0) return sink;
+  const u = cx * k;
+  const v = cy * k;
+  const x = (Math.sin(u) * Math.cos(v)) / k - cx;
+  const y = Math.sin(v) / k - cy;
+  const z = (Math.cos(u) * Math.cos(v) - 1) / k;
+  return `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, ${z.toFixed(2)}px) rotateY(${u.toFixed(5)}rad) rotateX(${(-v).toFixed(5)}rad) ${sink}`;
 }
 
 function tileCount(catalogSize: number): number {
@@ -106,7 +147,7 @@ export function placeOnSphere(
 
   const spacing = radius * Math.sqrt((4 * Math.PI) / count);
   const box = spacing * TILE_FILL;
-  const frontScale = perspectiveScale(radius + focusDolly(radius));
+  const frontScale = perspectiveScale(radius + focusRise(radius) + focusDolly(radius));
   const restScale = perspectiveScale(radius) * 1.1;
   const compact = viewportWidth < 640;
   const maxW = viewportWidth * (compact ? 0.84 : 0.6);
@@ -126,6 +167,9 @@ export function placeOnSphere(
       x: point.x * radius,
       y: point.y * radius,
       z: point.z * radius,
+      lon: Math.atan2(point.x, point.z),
+      lat: -Math.atan2(point.y, Math.hypot(point.x, point.z)),
+      ...facetGrid(aspect),
       tileWidth,
       focusWidth,
       aspect,
@@ -180,18 +224,22 @@ export function clampPitch(pitch: number): number {
   return Math.min(PITCH_LIMIT, Math.max(-PITCH_LIMIT, pitch));
 }
 
-function smoothstep(t: number): number {
+export function smoothstep(t: number): number {
   const x = Math.min(1, Math.max(0, t));
   return x * x * (3 - 2 * x);
 }
 
-/** Facing is 0 (far side) … 1 (toward camera). */
+/** Facing just past the rim, where a piece has flattened and starts to fade. */
+const RIM_FACING = 0.42;
+
+/** Facing is 0 (far side) … 1 (toward camera). Opaque until past the rim. */
 export function facingOpacity(facing: number): number {
-  return 0.08 + 0.92 * smoothstep((facing - 0.1) / 0.8);
+  return 0.08 + 0.92 * smoothstep((facing - 0.15) / (RIM_FACING - 0.15));
 }
 
-export function facingScale(facing: number): number {
-  return 0.7 + 0.3 * Math.max(0, facing);
+/** 1 where a piece bends with the sphere, easing to 0 (flat) past the rim. */
+export function facingBend(facing: number): number {
+  return smoothstep((facing - RIM_FACING) / 0.08);
 }
 
 /** Front-most tile — the natural target for Enter in overview. */

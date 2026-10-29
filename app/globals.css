@@ -278,7 +278,7 @@ body::before {
   top: 0;
   opacity: 0;
   pointer-events: none;
-  will-change: transform, opacity;
+  will-change: transform;
   transition: none;
 }
 
@@ -286,6 +286,53 @@ body::before {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* On the sphere a piece is cut into facets that bend around it. Once it has
+   flattened (opening, dimmed, past the rim) the plain image and its sharp
+   layer take over. */
+.orb-facets {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+
+/* Facets that merely touch leave anti-aliased hairlines, and overlapping ones
+   that cross each other's planes make the browser split both to depth-sort
+   them. So in a checkerboard, every other facet sits a pixel under the
+   surface and bleeds that far under its neighbours. */
+.orb-facet {
+  --bleed: 0px;
+  position: absolute;
+  left: calc(var(--col) / var(--cols) * 100% - var(--bleed));
+  top: calc(var(--row) / var(--rows) * 100% - var(--bleed));
+  width: calc(100% / var(--cols) + 2 * var(--bleed));
+  height: calc(100% / var(--rows) + 2 * var(--bleed));
+  overflow: hidden;
+}
+
+.orb-facet.is-under {
+  --bleed: var(--seam, 1px);
+}
+
+.orb-facet-image {
+  position: absolute;
+  left: calc(var(--bleed) - var(--col) * (100% - 2 * var(--bleed)));
+  top: calc(var(--bleed) - var(--row) * (100% - 2 * var(--bleed)));
+  display: block;
+  width: calc(var(--cols) * (100% - 2 * var(--bleed)));
+  height: calc(var(--rows) * (100% - 2 * var(--bleed)));
+  max-width: none;
+  object-fit: cover;
+  background: #ebe6df;
+  -webkit-user-drag: none;
+}
+
+.canvas-work.orb-work:not([data-flat]) > .canvas-work-image,
+.canvas-work.orb-work:not([data-flat]) > .canvas-work-image-detail,
+.canvas-work.orb-work[data-flat] > .orb-facets {
+  visibility: hidden;
 }
 
 .canvas-work.orb-work.is-focused {

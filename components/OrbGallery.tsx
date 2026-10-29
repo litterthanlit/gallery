@@ -13,12 +13,14 @@ import { OrbWork } from "@/components/OrbWork";
 import { easeInOutCubic, lerp } from "@/lib/camera";
 import { directionFromDelta, type NavDirection } from "@/lib/canvasLayout";
 import {
+  bendFacet,
   clampPitch,
   FACING_POINTER_MIN,
+  facingBend,
   facingOpacity,
-  facingScale,
   findOrbNeighbor,
   focusDolly,
+  focusRise,
   frontTile,
   lerpAngle,
   ORB_PERSPECTIVE,
@@ -27,6 +29,7 @@ import {
   placeOnSphere,
   rotatePoint,
   rotationToFront,
+  smoothstep,
   type OrbTile,
 } from "@/lib/orbLayout";
 
@@ -69,7 +72,15 @@ const AUTO_SPIN_DELAY = 2600;
 const AUTO_SPIN_RAMP = 1800;
 const SWIPE_MIN_DISTANCE = 56;
 const DRAG_THRESHOLD = 4;
-const HOVER_LIFT = 0.09;
+const HOVER_LIFT = 0.04;
+/** How far a hovered piece rises off the surface, as a share of the radius. */
+const HOVER_RISE = 0.07;
+/** Extra height, as a share of the radius, the incoming piece arcs through on a hop. */
+const HOP_ARC = 0.3;
+/** Share of the focus dim over which the other pieces flatten, before they fade. */
+const DIM_FLATTEN = 0.2;
+/** Below this the bend is invisible, so the piece swaps to its plain flat image. */
+const FLAT_BEND = 0.01;
 const FOCUS_DIM = 0.88;
 const WHEEL_EXIT = 90;
 const PINCH_EXIT = 70;
@@ -85,6 +96,35 @@ function clampDolly(value: number, radius: number): number {
 
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
+}
+
+/**
+ * Write each facet's transform so the tile, laid out `layoutWidth` wide,
+ * curves with `curvature`. Every other facet sinks `seam` and bleeds that far
+ * under its neighbours (see `.orb-facet.is-under`).
+ */
+function bendFacets(
+  el: HTMLElement,
+  tile: OrbTile,
+  layoutWidth: number,
+  curvature: number,
+  seam: number,
+) {
+  const facets = el.querySelector(".orb-facets")?.children;
+  if (!facets) return;
+  el.style.setProperty("--seam", `${seam.toFixed(2)}px`);
+  const layoutHeight = layoutWidth / tile.aspect;
+  const facetWidth = layoutWidth / tile.cols;
+  const facetHeight = layoutHeight / tile.rows;
+  for (let index = 0; index < facets.length; index += 1) {
+    const facet = facets[index] as HTMLElement;
+    facet.style.transform = bendFacet(
+      ((index % tile.cols) + 0.5) * facetWidth - layoutWidth / 2,
+      (Math.floor(index / tile.cols) + 0.5) * facetHeight - layoutHeight / 2,
+      curvature,
+      facet.classList.contains("is-under") ? -seam : 0,
+    );
+  }
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -141,6 +181,9 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
   const hoveredKeyRef = useRef<string | null>(null);
   const elementsRef = useRef(new Map<string, HTMLButtonElement>());
   const appliedWidthRef = useRef(new Map<string, number>());
+  const appliedTransformRef = useRef(new Map<string, string>());
+  const appliedOpacityRef = useRef(new Map<string, string>());
+  const appliedBendRef = useRef(new Map<string, string>());
   const appliedInteractiveRef = useRef(new Map<string, boolean>());
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ distance: number; dolly: number } | null>(null);
@@ -320,8 +363,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
     for (const value of amounts.values()) dim = Math.max(dim, value);
 
     rig.style.transform = `translateZ(${dolly.toFixed(2)}px)`;
-    stage.style.transform = `rotateX(${pitch.toFixed(5)}rad) rotateY(${yaw.toFixed(5)}rad)`;
-    const counter = `rotateY(${(-yaw).toFixed(5)}rad) rotateX(${(-pitch).toFixed(5)}rad)`;
+    stage.style.transform = `rotateX(${pitch.toFixed(5)}rad) rotateY(${yaw.toFixed(5)}rad) scale3d(${spread.toFixed(4)}, ${spread.toFixed(4)}, ${spread.toFixed(4)})`;
 
     let hoverSettling = false;
     let titleTile: OrbTile | null = null;
@@ -345,10 +387,23 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
         hoverAmountsRef.current.set(tile.key, hover);
       }
 
-      const resting = tile.tileWidth * facingScale(facing) * (1 + HOVER_LIFT * hover);
+      const resting = tile.tileWidth * (1 + HOVER_LIFT * hover);
       const width = lerp(resting, tile.focusWidth, amount);
-      const restingOpacity = facingOpacity(facing) * (1 - FOCUS_DIM * (dim - amount));
+      const shade = dim - amount;
+      const fade = Math.max(0, (shade - DIM_FLATTEN) / (1 - DIM_FLATTEN));
+      const restingOpacity = facingOpacity(facing) * (1 - FOCUS_DIM * fade);
       const opacity = lerp(restingOpacity, 1, amount) * Math.min(1, intro * 1.25);
+      // Opening, a piece peels off the sphere: it flattens and rises clear of
+      // its neighbours, which would otherwise poke through it.
+      const peel = 1 - (1 - amount) ** 3;
+      // Bend only while opaque: translucent facets show their seams, and
+      // opacity below 1 would flatten them anyway. So a piece also flattens
+      // before it fades (intro, dimming, past the rim).
+      const bend =
+        (1 - peel) *
+        facingBend(facing) *
+        (1 - smoothstep(shade / DIM_FLATTEN)) *
+        smoothstep((intro - 0.8) / 0.2);
 
       // Lay out at focus size while (un)focusing so the image stays sharp; the
       // transform only ever scales down.
@@ -362,8 +417,35 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
         el.style.marginTop = `${-layoutHeight / 2}px`;
       }
 
-      el.style.transform = `translate3d(${(tile.x * spread).toFixed(2)}px, ${(tile.y * spread).toFixed(2)}px, ${(tile.z * spread).toFixed(2)}px) ${counter} scale(${(width / layoutWidth).toFixed(4)})`;
-      el.style.opacity = opacity.toFixed(3);
+      // Lie on the sphere; a hovered piece rises off it a little. On a hop the
+      // incoming piece arcs higher, passing in front of the outgoing one
+      // rather than through it.
+      const scale = width / layoutWidth;
+      const arc = tile.key === focused && amounts.size > 1 ? Math.sin(Math.PI * amount) : 0;
+      const lift =
+        r + focusRise(r) * peel + r * (HOP_ARC * arc + HOVER_RISE * hover * (1 - peel));
+      const transform = `rotateY(${tile.lon.toFixed(5)}rad) rotateX(${tile.lat.toFixed(5)}rad) translateZ(${lift.toFixed(2)}px) scale(${scale.toFixed(4)})`;
+      if (appliedTransformRef.current.get(tile.key) !== transform) {
+        appliedTransformRef.current.set(tile.key, transform);
+        el.style.transform = transform;
+      }
+      const opacityValue = opacity.toFixed(3);
+      if (appliedOpacityRef.current.get(tile.key) !== opacityValue) {
+        appliedOpacityRef.current.set(tile.key, opacityValue);
+        el.style.opacity = opacityValue;
+      }
+
+      const flat = bend < FLAT_BEND;
+      if (flat !== el.hasAttribute("data-flat")) el.toggleAttribute("data-flat", flat);
+      if (!flat) {
+        const curvature = (bend * scale) / lift;
+        const key = `${layoutWidth}:${curvature.toPrecision(4)}`;
+        if (appliedBendRef.current.get(tile.key) !== key) {
+          appliedBendRef.current.set(tile.key, key);
+          // About a screen pixel, however far the piece is scaled down.
+          bendFacets(el, tile, layoutWidth, curvature, 1 / scale);
+        }
+      }
 
       const interactive =
         focused === null
@@ -378,7 +460,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       if (tile.key === focused) {
         titleTile = tile;
         titleWidth = width;
-        titlePoint = point;
+        titlePoint = { x: (point.x * lift) / r, y: (point.y * lift) / r, z: (point.z * lift) / r };
       }
     }
 
@@ -796,6 +878,9 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
       elementsRef.current.delete(key);
     }
     appliedWidthRef.current.delete(key);
+    appliedTransformRef.current.delete(key);
+    appliedOpacityRef.current.delete(key);
+    appliedBendRef.current.delete(key);
     appliedInteractiveRef.current.delete(key);
     dirtyRef.current = true;
   }, []);
@@ -840,6 +925,7 @@ export function OrbGallery({ requestedWork, onFocusChange }: OrbGalleryProps) {
               <OrbWork
                 key={tile.key}
                 tile={tile}
+                facets={tile}
                 focused={tile.key === focusedKey}
                 register={register}
                 onSelect={onSelect}

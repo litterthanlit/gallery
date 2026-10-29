@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { WorkImage } from "@/components/WorkImage";
+import { WorkImage, WorkTileImage } from "@/components/WorkImage";
 import type { OrbTile } from "@/lib/orbLayout";
 
 type StageTile = Pick<
@@ -14,6 +14,8 @@ type OrbWorkProps = {
   focused: boolean;
   /** View-specific class; the Ring reuses this tile with its own styles. */
   variant?: "orb-work" | "ring-work";
+  /** Cut the still into this grid so the gallery can bend it (the orb). */
+  facets?: { cols: number; rows: number };
   register: (key: string, el: HTMLButtonElement | null) => void;
   onSelect: (key: string) => void;
   onHover: (key: string | null) => void;
@@ -28,6 +30,7 @@ export const OrbWork = memo(function OrbWork({
   tile,
   focused,
   variant = "orb-work",
+  facets,
   register,
   onSelect,
   onHover,
@@ -57,6 +60,32 @@ export const OrbWork = memo(function OrbWork({
       aria-pressed={focused}
     >
       <span className="canvas-work-plane" aria-hidden="true" />
+      {facets ? (
+        <span
+          className="orb-facets"
+          style={{ "--cols": facets.cols, "--rows": facets.rows } as React.CSSProperties}
+          aria-hidden="true"
+        >
+          {Array.from({ length: facets.rows * facets.cols }, (_, index) => {
+            const col = index % facets.cols;
+            const row = Math.floor(index / facets.cols);
+            return (
+              <span
+                key={index}
+                className={`orb-facet${(col + row) % 2 ? " is-under" : ""}`}
+                style={{ "--col": col, "--row": row } as React.CSSProperties}
+              >
+                <WorkTileImage
+                  work={tile}
+                  sizes={`${tile.tileSizePx}px`}
+                  loading="eager"
+                  className="orb-facet-image"
+                />
+              </span>
+            );
+          })}
+        </span>
+      ) : null}
       <WorkImage
         work={tile}
         tileSizes={`${tile.tileSizePx}px`}

@@ -33,9 +33,10 @@ The ridge's shape (relief height, the slow swell) lives in [`lib/ringLayout.ts`]
 ### Orb
 
 - The sphere is tiled with repeats of the catalog so it always reads as a full globe, and drifts slowly when left alone
+- Pieces lie on the surface, bent to its curve and spaced apart; the far side shows faintly through the gaps
 - **Drag** to spin — fling it for inertia, grab it to catch it
 - **Scroll / pinch** to move closer or farther; horizontal trackpad scroll spins
-- **Hover** a piece for its title, **click** to bring it forward at full size
+- **Hover** a piece for its title, **click** to peel it off the sphere and bring it forward, flat and at full size
 - **Swipe**, arrows, or the ‹ › buttons hop to a neighboring piece
 - **Esc**, **← Orb**, click empty space, or scroll / pinch out to return
 - Keyboard: arrows spin the orb, **Enter** opens the piece facing you, **Tab** moves between visible pieces
